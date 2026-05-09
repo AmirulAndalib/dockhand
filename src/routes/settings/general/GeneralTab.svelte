@@ -74,6 +74,8 @@ services:
 	let eventCleanupCron = $derived($appSettings.eventCleanupCron);
 	let scheduleCleanupEnabled = $derived($appSettings.scheduleCleanupEnabled);
 	let eventCleanupEnabled = $derived($appSettings.eventCleanupEnabled);
+	let scannerCleanupCron = $derived($appSettings.scannerCleanupCron);
+	let scannerCleanupEnabled = $derived($appSettings.scannerCleanupEnabled);
 	let logBufferSizeKb = $derived($appSettings.logBufferSizeKb);
 	let formatLogTimestamps = $derived($appSettings.formatLogTimestamps);
 	let defaultTimezone = $derived($appSettings.defaultTimezone);
@@ -144,6 +146,17 @@ services:
 		const newState = !eventCleanupEnabled;
 		appSettings.setEventCleanupEnabled(newState);
 		toast.success(newState ? 'Event cleanup enabled' : 'Event cleanup disabled');
+	}
+
+	function handleScannerCleanupCronChange(cron: string) {
+		appSettings.setScannerCleanupCron(cron);
+		toast.success('Scanner cleanup cron updated');
+	}
+
+	function handleScannerCleanupEnabledChange() {
+		const newState = !scannerCleanupEnabled;
+		appSettings.setScannerCleanupEnabled(newState);
+		toast.success(newState ? 'Scanner cleanup enabled' : 'Scanner cleanup disabled');
 	}
 
 	function handleGrypeImageBlur(e: Event) {
@@ -757,6 +770,26 @@ services:
 							Automatically removes temporary containers used for browsing volume contents.
 							Runs every 30 minutes and on startup.
 						</p>
+					</div>
+					<div class="space-y-1 pt-2 border-t">
+						<div class="flex items-center gap-3">
+							<Label>Scanner cache cleanup</Label>
+							<TogglePill
+								checked={scannerCleanupEnabled}
+								onchange={handleScannerCleanupEnabledChange}
+								disabled={!$canAccess('settings', 'edit')}
+							/>
+						</div>
+						<p class="text-xs text-muted-foreground">Remove cached vulnerability databases to reclaim disk space</p>
+						<div class="flex items-center gap-2 mt-2">
+							<div class="ml-auto">
+								<CronEditor
+									value={scannerCleanupCron}
+									onchange={handleScannerCleanupCronChange}
+									disabled={!$canAccess('settings', 'edit') || !scannerCleanupEnabled}
+								/>
+							</div>
+						</div>
 					</div>
 				</Card.Content>
 			</Card.Root>

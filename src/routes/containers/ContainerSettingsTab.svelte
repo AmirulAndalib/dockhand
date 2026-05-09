@@ -60,6 +60,12 @@
 		driver: string;
 	}
 
+	interface NetworkEndpointConfig {
+		ipv4Address: string;
+		ipv6Address: string;
+		aliases: string;
+	}
+
 	interface Props {
 		mode: 'create' | 'edit';
 		// Basic settings
@@ -82,6 +88,8 @@
 		// Networks
 		availableNetworks: DockerNetwork[];
 		selectedNetworks: string[];
+		networkConfigs: Record<string, NetworkEndpointConfig>;
+		macAddress: string;
 		// User/Group
 		containerUser: string;
 		// Privileged mode
@@ -157,6 +165,8 @@
 		labels = $bindable(),
 		availableNetworks,
 		selectedNetworks = $bindable(),
+		networkConfigs = $bindable(),
+		macAddress = $bindable(),
 		containerUser = $bindable(),
 		privilegedMode = $bindable(),
 		healthcheckEnabled = $bindable(),
@@ -194,6 +204,60 @@
 		errors = $bindable(),
 		imageSummary
 	}: Props = $props();
+
+	// Expanded network config rows
+	let expandedNetworks = $state<Set<string>>(new Set());
+
+	function toggleNetworkExpand(networkName: string) {
+		const next = new Set(expandedNetworks);
+		if (next.has(networkName)) {
+			next.delete(networkName);
+		} else {
+			next.add(networkName);
+		}
+		expandedNetworks = next;
+	}
+
+	function ensureNetworkConfig(networkName: string) {
+		if (!networkConfigs[networkName]) {
+			networkConfigs[networkName] = { ipv4Address: '', ipv6Address: '', aliases: '' };
+			networkConfigs = { ...networkConfigs };
+		}
+	}
+
+	function hasNetworkConfig(networkName: string): boolean {
+		const cfg = networkConfigs[networkName];
+		return !!cfg && !!(cfg.ipv4Address || cfg.ipv6Address || cfg.aliases);
+	}
+
+	// Validation helpers
+	const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/;
+	const ipv6Regex = /^[0-9a-fA-F:]+$/;
+	const macRegex = /^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/;
+
+	function validateIpv4(value: string): string | null {
+		if (!value) return null;
+		return ipv4Regex.test(value) ? null : 'Invalid IPv4 address';
+	}
+
+	function validateIpv6(value: string): string | null {
+		if (!value) return null;
+		return ipv6Regex.test(value) ? null : 'Invalid IPv6 address';
+	}
+
+	function validateMac(value: string): string | null {
+		if (!value) return null;
+		return macRegex.test(value) ? null : 'Invalid MAC address (e.g., 02:42:ac:11:00:02)';
+	}
+
+	// Auto-expand networks that have config
+	$effect(() => {
+		for (const net of selectedNetworks) {
+			if (hasNetworkConfig(net) && !expandedNetworks.has(net)) {
+				expandedNetworks = new Set([...expandedNetworks, net]);
+			}
+		}
+	});
 
 	// Collapsible sections state
 	let showResources = $state(false);
@@ -257,6 +321,11 @@
 
 	function removeNetwork(networkId: string) {
 		selectedNetworks = selectedNetworks.filter((n) => n !== networkId);
+		const { [networkId]: _, ...rest } = networkConfigs;
+		networkConfigs = rest;
+		const next = new Set(expandedNetworks);
+		next.delete(networkId);
+		expandedNetworks = next;
 	}
 
 	function addDeviceMapping() {
@@ -681,25 +750,92 @@
 				</Select.Root>
 
 				{#if selectedNetworks.length > 0}
-					<div class="flex flex-wrap gap-2 pt-1">
+					<div class="space-y-1 pt-1">
 						{#each selectedNetworks as networkName}
 							{@const network = availableNetworks.find(n => n.name === networkName)}
-							<Badge variant="secondary" class="flex items-center gap-1.5 pr-1">
-								{networkName}
-								{#if network}
-									<span class={getDriverBadgeClasses(network.driver)}>{network.driver}</span>
+							{@const isExpanded = expandedNetworks.has(networkName)}
+							<div class="border rounded-md">
+								<div class="flex items-center justify-between px-2.5 py-1.5">
+									<button
+										type="button"
+										onclick={() => { ensureNetworkConfig(networkName); toggleNetworkExpand(networkName); }}
+										class="flex items-center gap-1.5 text-sm hover:text-foreground transition-colors"
+									>
+										{#if isExpanded}
+											<ChevronDown class="w-3.5 h-3.5 text-muted-foreground" />
+										{:else}
+											<ChevronRight class="w-3.5 h-3.5 text-muted-foreground" />
+										{/if}
+										<span>{networkName}</span>
+										{#if network}
+											<span class={getDriverBadgeClasses(network.driver)}>{network.driver}</span>
+										{/if}
+										{#if hasNetworkConfig(networkName)}
+											<Badge variant="secondary" class="text-2xs">configured</Badge>
+										{/if}
+									</button>
+									<button
+										type="button"
+										onclick={() => removeNetwork(networkName)}
+										class="p-0.5 hover:bg-destructive/20 rounded text-muted-foreground hover:text-destructive"
+									>
+										<X class="w-3.5 h-3.5" />
+									</button>
+								</div>
+								{#if isExpanded && networkConfigs[networkName]}
+									<div class="px-2.5 pb-2.5 pt-1 border-t space-y-2">
+										<div class="grid grid-cols-2 gap-2">
+											<div class="space-y-1">
+												<Label class="text-2xs font-medium text-muted-foreground">IPv4 address</Label>
+												<Input
+													bind:value={networkConfigs[networkName].ipv4Address}
+													placeholder="e.g., 172.28.0.100"
+													class="h-8 text-xs"
+												/>
+												{#if validateIpv4(networkConfigs[networkName].ipv4Address)}
+													<p class="text-2xs text-destructive">{validateIpv4(networkConfigs[networkName].ipv4Address)}</p>
+												{/if}
+											</div>
+											<div class="space-y-1">
+												<Label class="text-2xs font-medium text-muted-foreground">IPv6 address</Label>
+												<Input
+													bind:value={networkConfigs[networkName].ipv6Address}
+													placeholder="e.g., fd00::100"
+													class="h-8 text-xs"
+												/>
+												{#if validateIpv6(networkConfigs[networkName].ipv6Address)}
+													<p class="text-2xs text-destructive">{validateIpv6(networkConfigs[networkName].ipv6Address)}</p>
+												{/if}
+											</div>
+										</div>
+										<div class="space-y-1">
+											<Label class="text-2xs font-medium text-muted-foreground">Aliases (comma-separated)</Label>
+											<Input
+												bind:value={networkConfigs[networkName].aliases}
+												placeholder="e.g., myalias, web"
+												class="h-8 text-xs"
+											/>
+										</div>
+									</div>
 								{/if}
-								<button
-									type="button"
-									onclick={() => removeNetwork(networkName)}
-									class="ml-0.5 hover:bg-destructive/20 rounded p-0.5"
-								>
-									<X class="w-3 h-3" />
-								</button>
-							</Badge>
+							</div>
 						{/each}
 					</div>
 				{/if}
+
+				<!-- MAC Address -->
+				<div class="space-y-1 pt-1">
+					<Label class="text-xs font-medium">MAC address</Label>
+					<Input
+						bind:value={macAddress}
+						placeholder="e.g., 02:42:ac:11:00:02"
+						class="h-9"
+					/>
+					{#if validateMac(macAddress)}
+						<p class="text-xs text-destructive">{validateMac(macAddress)}</p>
+					{/if}
+				</div>
+
 				{#if mode === 'edit'}
 					<p class="text-xs text-muted-foreground">Container will be connected to selected networks in addition to the network mode above</p>
 				{/if}
@@ -851,7 +987,7 @@
 						size="icon"
 						variant="ghost"
 						onclick={() => removeLabel(index)}
-						disabled={labels.length === 1}
+						disabled={labels.length <= 1 && !labels[0]?.key}
 						class="h-9 w-9 text-muted-foreground hover:text-destructive"
 					>
 						<Trash2 class="w-4 h-4" />

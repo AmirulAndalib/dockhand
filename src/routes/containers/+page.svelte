@@ -473,7 +473,7 @@
 			// Unlock button width
 			if (updateCheckBtnEl) updateCheckBtnEl.style.minWidth = '';
 
-			const containersWithUpdates = data.results.filter((r: any) => r.hasUpdate && !r.systemContainer);
+			const containersWithUpdates = data.results.filter((r: any) => r.hasUpdate && !r.systemContainer && !r.updateDisabled && !r.isLocalImage);
 			const failed = data.results.filter((r: any) => r.error && !r.hasUpdate);
 			failedUpdateChecks = failed.map((r: any) => ({
 				containerName: r.containerName,
@@ -540,6 +540,19 @@
 		}
 		containerStore.setPendingUpdates(selectedWithUpdates, selectedNames);
 		showBatchUpdateModal = true;
+	}
+
+	async function dismissPendingUpdates() {
+		const envId = $currentEnvironment?.id;
+		if (!envId) return;
+		try {
+			const response = await fetch(`/api/containers/pending-updates?env=${envId}`, { method: 'DELETE' });
+			if (response.ok) {
+				containerStore.setPendingUpdates([], new Map());
+			}
+		} catch {
+			toast.error('Failed to clear update indicators');
+		}
 	}
 
 	function updateAllContainers() {
@@ -1442,6 +1455,12 @@
 				>
 					<CircleArrowUp class="w-3.5 h-3.5" />
 					Update all ({updatableContainersCount})
+					<button
+						type="button"
+						onclick={(e) => { e.stopPropagation(); dismissPendingUpdates(); }}
+						class="-mr-1 text-[12px] leading-none rounded-full hover:bg-destructive/20 hover:text-destructive transition-colors opacity-40 hover:opacity-100"
+						title="Dismiss all update indicators"
+					>×</button>
 				</Button>
 				{/if}
 				{#if $canAccess('containers', 'remove')}

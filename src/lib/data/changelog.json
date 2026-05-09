@@ -1,5 +1,30 @@
 [
   {
+    "version": "1.0.28",
+    "date": "2026-05-09",
+    "changes": [
+      { "type": "feature", "text": "context directory for git stacks — reference files from anywhere in the repo (#864)" },
+      { "type": "feature", "text": "no-cache build option for git stacks (#880)" },
+      { "type": "fix", "text": "env vars lost when switching between raw/form view (#964)" },
+      { "type": "fix", "text": "compose name property not respected during stack scan (#922)" },
+      { "type": "feature", "text": "editable schedule for scanner cache cleanup (#979)" },
+      { "type": "fix", "text": "container labels cannot be deleted (#984)" },
+      { "type": "fix", "text": "env var values leaked in deploy logs — now all values are redacted (#985)" },
+      { "type": "fix", "text": "volume export keeps helper container alive, preventing volume prune/deletion (#983)" },
+      { "type": "fix", "text": "ntfy self-hosted notifications fail when using ?auth= query parameter (#840)" },
+      { "type": "fix", "text": "scrollbar appears in dashboard tiles when content overflows (#969)" },
+      { "type": "fix", "text": "case-sensitive environment sort order — lowercase names sorted after uppercase (#975)" },
+      { "type": "fix", "text": "inaccurate dashboard CPU gauge caused by one-shot stats flag (#932)" },
+      { "type": "feature", "text": "ntfy notifications support ?tags=, ?title=, and ?priority= URL query parameters (#689)" },
+      { "type": "fix", "text": "stack .env file wiped when saving from graph view (#988)" },
+      { "type": "feature", "text": "dismiss update available indicators without updating (#853)" },
+      { "type": "feature", "text": "public IP setting available for hawser-edge environments — enables clickable port links (#350)" },
+      { "type": "fix", "text": "git stack creation silently destroys existing stacks with the same name (#1001)" },
+      { "type": "feature", "text": "static IP/MAC address configuration for containers (#297)" }
+    ],
+    "imageTag": "fnsys/dockhand:v1.0.28"
+  },
+  {
     "version": "1.0.27",
     "comingSoon": false,
     "date": "2026-04-26",

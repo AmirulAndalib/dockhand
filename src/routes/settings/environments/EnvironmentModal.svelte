@@ -751,7 +751,7 @@
 					labels: formLabels,
 					connectionType: formConnectionType,
 					hawserToken: formHawserToken || undefined,
-					publicIp: formConnectionType !== 'hawser-edge' ? (stripHostProtocol(formPublicIp.trim()) || undefined) : undefined
+					publicIp: stripHostProtocol(formPublicIp.trim()) || undefined
 				})
 			});
 
@@ -869,7 +869,7 @@
 					labels: formLabels,
 					connectionType: formConnectionType,
 					hawserToken: formHawserToken || undefined,
-					publicIp: formConnectionType !== 'hawser-edge' ? (stripHostProtocol(formPublicIp.trim()) || null) : null
+					publicIp: stripHostProtocol(formPublicIp.trim()) || null
 				})
 			});
 
@@ -2160,31 +2160,29 @@
 							</div>
 						{/if}
 
-						<!-- Public IP field (for all types except hawser-edge) -->
-						{#if formConnectionType !== 'hawser-edge'}
-							<div class="space-y-2 pt-4 border-t">
-								<div class="flex items-center gap-2">
-									<Label for="edit-env-public-ip">Public IP</Label>
-									<Tooltip.Root>
-										<Tooltip.Trigger>
-											<HelpCircle class="w-3.5 h-3.5 text-muted-foreground" />
-										</Tooltip.Trigger>
-										<Tooltip.Content side="bottom" class="w-72">
-											<p>IP address or hostname where container ports are accessible from your browser. For local Docker, use the server's LAN IP.</p>
-										</Tooltip.Content>
-									</Tooltip.Root>
-								</div>
-								<Input
-									id="edit-env-public-ip"
-									bind:value={formPublicIp}
-									placeholder="e.g., 192.168.1.4"
-									class="w-full"
-								/>
-								<p class="text-xs text-muted-foreground">
-									Used for clickable port links on the containers page
-								</p>
+						<!-- Public IP field -->
+						<div class="space-y-2 pt-4 border-t">
+							<div class="flex items-center gap-2">
+								<Label for="edit-env-public-ip">Public IP</Label>
+								<Tooltip.Root>
+									<Tooltip.Trigger>
+										<HelpCircle class="w-3.5 h-3.5 text-muted-foreground" />
+									</Tooltip.Trigger>
+									<Tooltip.Content side="bottom" class="w-72">
+										<p>IP address or hostname where container ports are accessible from your browser. For local Docker, use the server's LAN IP.</p>
+									</Tooltip.Content>
+								</Tooltip.Root>
 							</div>
-						{/if}
+							<Input
+								id="edit-env-public-ip"
+								bind:value={formPublicIp}
+								placeholder="e.g., 192.168.1.4"
+								class="w-full"
+							/>
+							<p class="text-xs text-muted-foreground">
+								Used for clickable port links on the containers page
+							</p>
+						</div>
 					</Tabs.Content>
 
 				<!-- Updates Tab -->

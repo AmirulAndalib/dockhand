@@ -22,6 +22,8 @@ export interface AppSettings {
 	eventCleanupCron: string;
 	scheduleCleanupEnabled: boolean;
 	eventCleanupEnabled: boolean;
+	scannerCleanupCron: string;
+	scannerCleanupEnabled: boolean;
 	logBufferSizeKb: number;
 	defaultTimezone: string;
 	eventCollectionMode: EventCollectionMode;
@@ -52,6 +54,8 @@ const DEFAULT_SETTINGS: AppSettings = {
 	eventCleanupCron: '30 3 * * *',
 	scheduleCleanupEnabled: true,
 	eventCleanupEnabled: true,
+	scannerCleanupCron: '0 3 * * 0',
+	scannerCleanupEnabled: true,
 	logBufferSizeKb: 500,
 	defaultTimezone: 'UTC',
 	eventCollectionMode: 'stream',
@@ -113,6 +117,8 @@ function createSettingsStore() {
 					eventCleanupCron: settings.eventCleanupCron ?? DEFAULT_SETTINGS.eventCleanupCron,
 					scheduleCleanupEnabled: settings.scheduleCleanupEnabled ?? DEFAULT_SETTINGS.scheduleCleanupEnabled,
 					eventCleanupEnabled: settings.eventCleanupEnabled ?? DEFAULT_SETTINGS.eventCleanupEnabled,
+					scannerCleanupCron: settings.scannerCleanupCron ?? DEFAULT_SETTINGS.scannerCleanupCron,
+					scannerCleanupEnabled: settings.scannerCleanupEnabled ?? DEFAULT_SETTINGS.scannerCleanupEnabled,
 					logBufferSizeKb: settings.logBufferSizeKb ?? DEFAULT_SETTINGS.logBufferSizeKb,
 					defaultTimezone: settings.defaultTimezone ?? DEFAULT_SETTINGS.defaultTimezone,
 					eventCollectionMode: settings.eventCollectionMode ?? DEFAULT_SETTINGS.eventCollectionMode,
@@ -160,6 +166,8 @@ function createSettingsStore() {
 					eventCleanupCron: updatedSettings.eventCleanupCron ?? DEFAULT_SETTINGS.eventCleanupCron,
 					scheduleCleanupEnabled: updatedSettings.scheduleCleanupEnabled ?? DEFAULT_SETTINGS.scheduleCleanupEnabled,
 					eventCleanupEnabled: updatedSettings.eventCleanupEnabled ?? DEFAULT_SETTINGS.eventCleanupEnabled,
+					scannerCleanupCron: updatedSettings.scannerCleanupCron ?? DEFAULT_SETTINGS.scannerCleanupCron,
+					scannerCleanupEnabled: updatedSettings.scannerCleanupEnabled ?? DEFAULT_SETTINGS.scannerCleanupEnabled,
 					logBufferSizeKb: updatedSettings.logBufferSizeKb ?? DEFAULT_SETTINGS.logBufferSizeKb,
 					defaultTimezone: updatedSettings.defaultTimezone ?? DEFAULT_SETTINGS.defaultTimezone,
 					eventCollectionMode: updatedSettings.eventCollectionMode ?? DEFAULT_SETTINGS.eventCollectionMode,
@@ -294,6 +302,20 @@ function createSettingsStore() {
 			update((current) => {
 				const newSettings = { ...current, eventCleanupEnabled: value };
 				saveSettings({ eventCleanupEnabled: value });
+				return newSettings;
+			});
+		},
+		setScannerCleanupCron: (value: string) => {
+			update((current) => {
+				const newSettings = { ...current, scannerCleanupCron: value };
+				saveSettings({ scannerCleanupCron: value });
+				return newSettings;
+			});
+		},
+		setScannerCleanupEnabled: (value: boolean) => {
+			update((current) => {
+				const newSettings = { ...current, scannerCleanupEnabled: value };
+				saveSettings({ scannerCleanupEnabled: value });
 				return newSettings;
 			});
 		},

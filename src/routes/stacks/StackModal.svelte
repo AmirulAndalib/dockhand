@@ -887,7 +887,8 @@
 		error = null;
 
 		// Prepare env vars for creating - syncs variables and rawContent
-		const prepared = envVarsPanelRef?.prepareForSave() || { rawContent: '', variables: [] };
+		// If env panel is unmounted (e.g. graph tab active), use bound state directly
+		const prepared = envVarsPanelRef?.prepareForSave() || { rawContent: rawEnvContent, variables: envVars };
 
 		let response: Response | undefined;
 		try {
@@ -1011,7 +1012,8 @@
 		error = null;
 
 		// Prepare env vars for saving - syncs variables and rawContent
-		const prepared = envVarsPanelRef?.prepareForSave() || { rawContent: '', variables: [] };
+		// If env panel is unmounted (e.g. graph tab active), use bound state directly
+		const prepared = envVarsPanelRef?.prepareForSave() || { rawContent: rawEnvContent, variables: envVars };
 
 		// Resolve env path (use working or suggested)
 		const envPathToSave = workingEnvPath.trim() || suggestedEnvPath || '';

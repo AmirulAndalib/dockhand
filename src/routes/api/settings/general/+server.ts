@@ -14,6 +14,10 @@ import {
 	setScheduleCleanupEnabled,
 	getEventCleanupEnabled,
 	setEventCleanupEnabled,
+	getScannerCleanupCron,
+	setScannerCleanupCron,
+	getScannerCleanupEnabled,
+	setScannerCleanupEnabled,
 	getDefaultTimezone,
 	setDefaultTimezone,
 	getEventCollectionMode,
@@ -52,6 +56,8 @@ export interface GeneralSettings {
 	eventCleanupCron: string;
 	scheduleCleanupEnabled: boolean;
 	eventCleanupEnabled: boolean;
+	scannerCleanupCron: string;
+	scannerCleanupEnabled: boolean;
 	logBufferSizeKb: number;
 	defaultTimezone: string;
 	// Background monitoring settings
@@ -83,7 +89,7 @@ export interface GeneralSettings {
 	labelFilterMode: 'any' | 'all';
 }
 
-const DEFAULT_SETTINGS: Omit<GeneralSettings, 'scheduleRetentionDays' | 'eventRetentionDays' | 'scheduleCleanupCron' | 'eventCleanupCron' | 'scheduleCleanupEnabled' | 'eventCleanupEnabled'> = {
+const DEFAULT_SETTINGS: Omit<GeneralSettings, 'scheduleRetentionDays' | 'eventRetentionDays' | 'scheduleCleanupCron' | 'eventCleanupCron' | 'scheduleCleanupEnabled' | 'eventCleanupEnabled' | 'scannerCleanupCron' | 'scannerCleanupEnabled'> = {
 	confirmDestructive: true,
 	showStoppedContainers: true,
 	highlightUpdates: true,
@@ -165,6 +171,8 @@ export const GET: RequestHandler = async ({ cookies }) => {
 			eventCleanupCron,
 			scheduleCleanupEnabled,
 			eventCleanupEnabled,
+			scannerCleanupCron,
+			scannerCleanupEnabled,
 			logBufferSizeKb,
 			defaultTimezone,
 			eventCollectionMode,
@@ -200,6 +208,8 @@ export const GET: RequestHandler = async ({ cookies }) => {
 			getEventCleanupCron(),
 			getScheduleCleanupEnabled(),
 			getEventCleanupEnabled(),
+			getScannerCleanupCron(),
+			getScannerCleanupEnabled(),
 			getSetting('log_buffer_size_kb'),
 			getDefaultTimezone(),
 			getEventCollectionMode(),
@@ -237,6 +247,8 @@ export const GET: RequestHandler = async ({ cookies }) => {
 			eventCleanupCron,
 			scheduleCleanupEnabled,
 			eventCleanupEnabled,
+			scannerCleanupCron,
+			scannerCleanupEnabled,
 			logBufferSizeKb: logBufferSizeKb ?? DEFAULT_SETTINGS.logBufferSizeKb,
 			defaultTimezone: defaultTimezone ?? DEFAULT_SETTINGS.defaultTimezone,
 			eventCollectionMode: (eventCollectionMode ?? DEFAULT_SETTINGS.eventCollectionMode) as EventCollectionMode,
@@ -274,7 +286,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 
 	try {
 		const body = await request.json();
-		const { confirmDestructive, showStoppedContainers, highlightUpdates, timeFormat, dateFormat, downloadFormat, defaultGrypeArgs, defaultTrivyArgs, scheduleRetentionDays, eventRetentionDays, scheduleCleanupCron, eventCleanupCron, scheduleCleanupEnabled, eventCleanupEnabled, logBufferSizeKb, defaultTimezone, eventCollectionMode, eventPollInterval, metricsCollectionInterval, lightTheme, darkTheme, font, fontSize, gridFontSize, terminalFont, editorFont, compactPorts, formatLogTimestamps, externalStackPaths, primaryStackLocation, defaultGrypeImage, defaultTrivyImage, defaultComposeTemplate, labelFilterMode } = body;
+		const { confirmDestructive, showStoppedContainers, highlightUpdates, timeFormat, dateFormat, downloadFormat, defaultGrypeArgs, defaultTrivyArgs, scheduleRetentionDays, eventRetentionDays, scheduleCleanupCron, eventCleanupCron, scheduleCleanupEnabled, eventCleanupEnabled, scannerCleanupCron, scannerCleanupEnabled, logBufferSizeKb, defaultTimezone, eventCollectionMode, eventPollInterval, metricsCollectionInterval, lightTheme, darkTheme, font, fontSize, gridFontSize, terminalFont, editorFont, compactPorts, formatLogTimestamps, externalStackPaths, primaryStackLocation, defaultGrypeImage, defaultTrivyImage, defaultComposeTemplate, labelFilterMode } = body;
 
 		if (confirmDestructive !== undefined) {
 			await setSetting('confirm_destructive', confirmDestructive);
@@ -317,6 +329,14 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		}
 		if (eventCleanupEnabled !== undefined && typeof eventCleanupEnabled === 'boolean') {
 			await setEventCleanupEnabled(eventCleanupEnabled);
+		}
+		if (scannerCleanupCron !== undefined && typeof scannerCleanupCron === 'string') {
+			await setScannerCleanupCron(scannerCleanupCron);
+			await refreshSystemJobs();
+		}
+		if (scannerCleanupEnabled !== undefined && typeof scannerCleanupEnabled === 'boolean') {
+			await setScannerCleanupEnabled(scannerCleanupEnabled);
+			await refreshSystemJobs();
 		}
 		if (logBufferSizeKb !== undefined && typeof logBufferSizeKb === 'number') {
 			// Clamp to reasonable range: 100KB - 5000KB (5MB)
@@ -416,6 +436,8 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			eventCleanupCronVal,
 			scheduleCleanupEnabledVal,
 			eventCleanupEnabledVal,
+			scannerCleanupCronVal,
+			scannerCleanupEnabledVal,
 			logBufferSizeKbVal,
 			defaultTimezoneVal,
 			eventCollectionModeVal,
@@ -451,6 +473,8 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			getEventCleanupCron(),
 			getScheduleCleanupEnabled(),
 			getEventCleanupEnabled(),
+			getScannerCleanupCron(),
+			getScannerCleanupEnabled(),
 			getSetting('log_buffer_size_kb'),
 			getDefaultTimezone(),
 			getEventCollectionMode(),
@@ -488,6 +512,8 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			eventCleanupCron: eventCleanupCronVal,
 			scheduleCleanupEnabled: scheduleCleanupEnabledVal,
 			eventCleanupEnabled: eventCleanupEnabledVal,
+			scannerCleanupCron: scannerCleanupCronVal,
+			scannerCleanupEnabled: scannerCleanupEnabledVal,
 			logBufferSizeKb: logBufferSizeKbVal ?? DEFAULT_SETTINGS.logBufferSizeKb,
 			defaultTimezone: defaultTimezoneVal ?? DEFAULT_SETTINGS.defaultTimezone,
 			eventCollectionMode: (eventCollectionModeVal ?? DEFAULT_SETTINGS.eventCollectionMode) as EventCollectionMode,
