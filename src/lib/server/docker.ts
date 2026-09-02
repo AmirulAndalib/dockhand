@@ -26,7 +26,6 @@ import { resolveNanoCpusConflict, resolvePodmanUsernsMode } from './hostconfig-r
 import { parseImageReference } from './registry/image-ref';
 export { parseImageReference } from './registry/image-ref';
 import { rebaseEnvOntoImage, rebaseLabelsOntoImage, rebaseCommand, describeEnvRebase, describeLabelRebase, type ImageEnvLabels } from './container-env-merge';
-import { db, environments, eq } from './db/drizzle.js';
 import { encodeRegistryAuth, fetchRegistryToken, isSafeRegistryHost } from './registry-auth';
 import { classifyManifest, type ArtifactKind } from './semver/manifest-artifact';
 import { isSystemContainer, classifyEmptyDigestImage, localDigestIsIndexChild } from './scheduler/tasks/update-utils';
@@ -4093,47 +4092,23 @@ export async function dockerPing(envId: number): Promise<boolean> {
 	}
 }
 
-export interface HawserAgentInfo {
+/**
+ * Get Hawser agent info (for hawser-standard mode)
+ * Returns agent info including uptime
+ */
+export async function getHawserInfo(envId: number): Promise<{
 	agentId: string;
 	agentName: string;
 	dockerVersion: string;
 	hawserVersion: string;
 	mode: string;
 	uptime: number;
-	/** Hawser agent STACKS_DIR — remote host path where compose stacks are written */
-	stacksDir?: string;
-}
-
-/**
- * Get Hawser agent info (for hawser-standard mode)
- * Returns agent info including uptime
- */
-export async function getHawserInfo(envId: number): Promise<HawserAgentInfo | null> {
-	return getHawserInfoCached(envId);
-}
-
-const HAWSER_INFO_TTL_MS = 60_000;
-const HAWSER_INFO_NEGATIVE_TTL_MS = 3_000;
-const hawserInfoCache = new Map<number, { info: HawserAgentInfo | null; expiresAt: number }>();
-
-/**
- * Memoized wrapper around the /_hawser/info agent round-trip. Stacks listing
- * resolves display paths per stack, so a single list request would otherwise
- * hit the agent once per stack (N+1).
- */
-async function getHawserInfoCached(envId: number): Promise<HawserAgentInfo | null> {
-	const cached = hawserInfoCache.get(envId);
-	if (cached && cached.expiresAt > Date.now()) {
-		return cached.info;
-	}
-
-	let info: HawserAgentInfo | null = null;
+} | null> {
 	for (let attempt = 0; attempt < 2; attempt++) {
 		try {
 			const response = await dockerFetch('/_hawser/info', {}, envId);
 			if (response.ok) {
-				info = await response.json();
-				break;
+				return await response.json();
 			}
 			await drainResponse(response);
 			console.warn(`[Hawser] Info endpoint returned ${response.status} for env ${envId}`);
@@ -4142,27 +4117,7 @@ async function getHawserInfoCached(envId: number): Promise<HawserAgentInfo | nul
 			console.warn(`[Hawser] Failed to fetch info for env ${envId} (attempt ${attempt + 1}): ${msg}`);
 		}
 	}
-
-	// Persist the remote stacks dir so display-path resolution survives agent
-	// restarts and doesn't depend on container runtime state (labels) or a
-	// live info round-trip per request.
-	if (info?.stacksDir) {
-		try {
-			await db
-				.update(environments)
-				.set({ hawserStacksDir: info.stacksDir })
-				.where(eq(environments.id, envId));
-		} catch (error) {
-			const msg = error instanceof Error ? error.message : String(error);
-			console.warn(`[Hawser] Failed to persist stacksDir for env ${envId}: ${msg}`);
-		}
-	}
-
-	hawserInfoCache.set(envId, {
-		info,
-		expiresAt: Date.now() + (info ? HAWSER_INFO_TTL_MS : HAWSER_INFO_NEGATIVE_TTL_MS)
-	});
-	return info;
+	return null;
 }
 
 // Volume operations
@@ -5072,9 +5027,15 @@ export async function runContainerWithStreaming(options: {
 		HostConfig: {
 			Binds: options.binds || [],
 			AutoRemove: false,
+			// No log rotation: a helper's stdout IS its result, read via /logs after it
+			// exits. An empty Config inherits the daemon's default rotation (Synology sets
+			// max-size=10m,max-file=3), and a scanner writing a large JSON report line by
+			// line blows past the window - the head rotates away and /logs returns a
+			// truncated, mid-document buffer (#1496). One big file, no rotation; the log
+			// dies with the ephemeral container so it never accumulates on disk.
 			LogConfig: {
 				Type: 'json-file',
-				Config: {}
+				Config: { 'max-file': '1', 'max-size': '1g' }
 			}
 		}
 	};
