@@ -20,6 +20,7 @@ import { initRepository as initRepoCore, testRepository as testRepoCore, checkRe
 import { parseRetention, buildForgetArgs, checkWouldWipe } from './retention';
 import { buildSnapshotLayout, serializeLayout, parseSnapshotLayout, type SnapshotLayout, type SnapshotStack, type SnapshotSecret } from './snapshot-layout';
 import { instanceTagFilter, parseSnapshots, retentionTagFilter, BackupError } from './models';
+import { localRepoIssueFor } from './local-repo-path';
 import { parseOptionsJson, buildJobOptions, parseSelectedVolumes, parseBackupFlags, sanitizeRestoreFlags, fireWebhook, parseResticDiff, type SnapshotDiff } from './helpers';
 import { getHostname } from '../license';
 import { getBackupConfig, getBackupConfigs, getBackupDestination, updateBackupConfig, updateBackupDestination, decryptBackupDestination } from '../db';
@@ -1321,8 +1322,25 @@ export async function forgetSnapshot(destinationId: number, snapshotId: string):
 
 // --- repository maintenance ---
 
+/**
+ * Reject a local-path repo whose path isn't under any Dockhand bind mount (#1506):
+ * restic would write it into the container's ephemeral filesystem while the helper
+ * looks for it on the host, so both "succeed" yet never share one repo. Returns an
+ * error string to surface, or null when the path is fine (bare-metal, or under a bind).
+ */
+async function localRepoPathIssue(destination: { repository: string }): Promise<string | null> {
+	const { isLocalRepo } = await import('./models');
+	const { getCachedContainerMounts } = await import('../host-path');
+	return localRepoIssueFor(destination.repository, isLocalRepo(destination.repository), getCachedContainerMounts());
+}
+
 export async function initRepository(destinationId: number): Promise<void> {
 	const destination = await loadDest(destinationId);
+	const pathIssue = await localRepoPathIssue(destination);
+	if (pathIssue) {
+		logRepoOp(destination.name, 'init', false, { error: pathIssue });
+		throw new Error(pathIssue);
+	}
 	const r = await initRepoCore(reader(), destination);
 	logRepoOp(destination.name, 'init', r.ok, r.ok ? { output: r.output } : { error: r.error });
 	if (!r.ok) throw new Error(r.error);
@@ -1330,6 +1348,11 @@ export async function initRepository(destinationId: number): Promise<void> {
 
 export async function testRepository(destinationId: number): Promise<{ ok: boolean; needsInit?: boolean; error?: string }> {
 	const destination = await loadDest(destinationId);
+	const pathIssue = await localRepoPathIssue(destination);
+	if (pathIssue) {
+		logRepoOp(destination.name, 'test', false, { error: pathIssue });
+		return { ok: false, error: pathIssue };
+	}
 	const r = await testRepoCore(reader(), destination);
 	logRepoOp(destination.name, 'test', r.ok, r.ok ? undefined : { error: r.error });
 	if (r.ok) return { ok: true };
