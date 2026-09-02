@@ -36,14 +36,14 @@ export const MessageType = {
 export interface EdgeConnection {
 	ws: WebSocket;
 	environmentId: number;
+	/** The hawser token id this connection authenticated with; revoking that token closes it. */
+	tokenId?: number;
 	agentId: string;
 	agentName: string;
 	agentVersion: string;
 	dockerVersion: string;
 	hostname: string;
 	capabilities: string[];
-	/** Remote agent STACKS_DIR (from hello message) */
-	stacksDir?: string;
 	connectedAt: Date;
 	lastHeartbeat: number;
 	pendingRequests: Map<string, PendingRequest>;
@@ -393,6 +393,17 @@ export async function generateHawserToken(
  */
 export async function revokeHawserToken(tokenId: number): Promise<void> {
 	await db.update(hawserTokens).set({ isActive: false }).where(eq(hawserTokens.id, tokenId));
+
+	// A revoke is an incident-response action: cut the agent off NOW. isActive is only
+	// checked at the hello handshake, so an already-open edge connection would otherwise
+	// keep serving. Close the connection this token authenticated (matched by tokenId, so
+	// revoking a DIFFERENT token for the same env doesn't disconnect a still-valid agent).
+	for (const connection of edgeConnections.values()) {
+		if (connection.tokenId === tokenId) {
+			console.log(`[Hawser] Closing edge connection for env ${connection.environmentId} - its token (${tokenId}) was revoked`);
+			closeEdgeConnection(connection.environmentId);
+		}
+	}
 }
 
 /**
@@ -450,7 +461,8 @@ export function closeEdgeConnection(environmentId: number): void {
 export function handleEdgeConnection(
 	ws: WebSocket,
 	environmentId: number,
-	hello: HelloMessage
+	hello: HelloMessage,
+	tokenId?: number
 ): EdgeConnection {
 	// Check if there's already a connection for this environment
 	const existing = edgeConnections.get(environmentId);
@@ -492,13 +504,13 @@ export function handleEdgeConnection(
 	const connection: EdgeConnection = {
 		ws,
 		environmentId,
+		tokenId,
 		agentId: hello.agentId,
 		agentName: hello.agentName,
 		agentVersion: hello.version,
 		dockerVersion: hello.dockerVersion,
 		hostname: hello.hostname,
 		capabilities: hello.capabilities,
-		stacksDir: hello.stacksDir,
 		connectedAt: new Date(),
 		lastHeartbeat: Date.now(),
 		pendingRequests: new Map(),
@@ -525,40 +537,32 @@ export function handleEdgeConnection(
 }
 
 /**
- * Update environment status in database. Best-effort: called from connection
- * setup, teardown and heartbeat-timeout paths where a DB failure must not
- * take down the connection handling.
+ * Update environment status in database
  */
 async function updateEnvironmentStatus(
 	environmentId: number,
 	connection: EdgeConnection | null
 ): Promise<void> {
-	try {
-		if (connection) {
-			await db
-				.update(environments)
-				.set({
-					hawserLastSeen: new Date().toISOString(),
-					hawserAgentId: connection.agentId,
-					hawserAgentName: connection.agentName,
-					hawserVersion: connection.agentVersion,
-					hawserCapabilities: JSON.stringify(connection.capabilities),
-					hawserStacksDir: connection.stacksDir ?? null,
-					updatedAt: new Date().toISOString()
-				})
-				.where(eq(environments.id, environmentId));
-		} else {
-			await db
-				.update(environments)
-				.set({
-					hawserLastSeen: new Date().toISOString(),
-					updatedAt: new Date().toISOString()
-				})
-				.where(eq(environments.id, environmentId));
-		}
-	} catch (error) {
-		const msg = error instanceof Error ? error.message : String(error);
-		console.warn(`[Hawser] Failed to update environment status for env ${environmentId}: ${msg}`);
+	if (connection) {
+		await db
+			.update(environments)
+			.set({
+				hawserLastSeen: new Date().toISOString(),
+				hawserAgentId: connection.agentId,
+				hawserAgentName: connection.agentName,
+				hawserVersion: connection.agentVersion,
+				hawserCapabilities: JSON.stringify(connection.capabilities),
+				updatedAt: new Date().toISOString()
+			})
+			.where(eq(environments.id, environmentId));
+	} else {
+		await db
+			.update(environments)
+			.set({
+				hawserLastSeen: new Date().toISOString(),
+				updatedAt: new Date().toISOString()
+			})
+			.where(eq(environments.id, environmentId));
 	}
 }
 
@@ -941,8 +945,6 @@ export interface HelloMessage {
 	dockerVersion: string;
 	hostname: string;
 	capabilities: string[];
-	/** Remote agent STACKS_DIR — host path where compose stacks are written */
-	stacksDir?: string;
 }
 
 export interface WelcomeMessage {
@@ -1214,7 +1216,7 @@ async function handleHawserWsMessage(ws: any, msg: any, connId: string, remoteIp
 			}
 
 			// Authenticated — register the connection
-			const connection = handleEdgeConnection(ws, result.environmentId, msg);
+			const connection = handleEdgeConnection(ws, result.environmentId, msg, result.tokenId);
 			wsToEnvId.set(ws, result.environmentId);
 
 			// Send welcome

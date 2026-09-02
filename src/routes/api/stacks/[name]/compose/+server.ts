@@ -1,22 +1,8 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { dirname } from 'node:path';
-import { getStackComposeFile, deployStack, saveStackComposeFile, remapHawserStagingDisplayPaths, unmapHawserDisplayComposeOptionsToStaging } from '$lib/server/stacks';
+import { getStackComposeFile, deployStack, saveStackComposeFile } from '$lib/server/stacks';
 import { authorize } from '$lib/server/authorize';
 import { createJobResponse } from '$lib/server/sse';
-
-async function remapDisplayPath(
-	name: string,
-	envId: number | undefined,
-	path: string | null | undefined
-): Promise<string | null | undefined> {
-	if (!path) return path;
-	const remapped = await remapHawserStagingDisplayPaths(name, envId, {
-		composePath: path,
-		composePaths: []
-	});
-	return remapped.composePath ?? path;
-}
 
 // GET /api/stacks/[name]/compose - Get compose file content
 /**
@@ -30,13 +16,14 @@ async function remapDisplayPath(
  */
 export const GET: RequestHandler = async ({ params, url, cookies }) => {
 	const auth = await authorize(cookies);
-	if (auth.authEnabled && !(await auth.can('stacks', 'view'))) {
-		return json({ error: 'Permission denied' }, { status: 403 });
-	}
-
 	const { name } = params;
 	const envId = url.searchParams.get('env');
 	const envIdNum = envId ? parseInt(envId) : undefined;
+	if (auth.authEnabled && !(await auth.can('stacks', 'view', envIdNum))) {
+		return json({ error: 'Permission denied' }, { status: 403 });
+	}
+	const envAccessDenied = await auth.requireEnvAccess(envIdNum ?? null);
+	if (envAccessDenied) return envAccessDenied;
 
 	try {
 		const result = await getStackComposeFile(name, envIdNum);
@@ -46,26 +33,17 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 			return json({
 				error: result.error,
 				needsFileLocation: result.needsFileLocation || false,
-				composePath: await remapDisplayPath(name, envIdNum, result.composePath),
-				envPath: await remapDisplayPath(name, envIdNum, result.envPath)
+				composePath: result.composePath,
+				envPath: result.envPath
 			}, { status: 404 });
-		}
-
-		const displayPaths = await remapHawserStagingDisplayPaths(name, envIdNum, {
-			composePath: result.composePath ?? null,
-			composePaths: []
-		});
-		let displayStackDir = result.stackDir;
-		if (displayPaths.composePath) {
-			displayStackDir = dirname(displayPaths.composePath);
 		}
 
 		return json({
 			content: result.content,
-			stackDir: displayStackDir,
-			composePath: displayPaths.composePath,
-			envPath: await remapDisplayPath(name, envIdNum, result.envPath),
-			suggestedEnvPath: await remapDisplayPath(name, envIdNum, result.suggestedEnvPath)
+			stackDir: result.stackDir,
+			composePath: result.composePath,
+			envPath: result.envPath,
+			suggestedEnvPath: result.suggestedEnvPath
 		});
 	} catch (error: any) {
 		console.error(`Error getting compose file for stack ${name}:`, error);
@@ -96,6 +74,8 @@ export const PUT: RequestHandler = async ({ params, request, url, cookies }) => 
 	if (auth.authEnabled && !(await auth.can('stacks', 'edit', envIdNum))) {
 		return json({ error: 'Permission denied' }, { status: 403 });
 	}
+	const envAccessDenied = await auth.requireEnvAccess(envIdNum ?? null);
+	if (envAccessDenied) return envAccessDenied;
 
 	try {
 		const body = await request.json();
@@ -124,25 +104,17 @@ export const PUT: RequestHandler = async ({ params, request, url, cookies }) => 
 			return json({ error: 'Permission denied: binding a secret provider requires the secrets permission' }, { status: 403 });
 		}
 
-		// Convert Hawser display paths from the UI back to Dockhand staging paths
-		// before writing. secretProviderId is not a path and is merged after unmap.
-		let pathOptions: Parameters<typeof unmapHawserDisplayComposeOptionsToStaging>[2] | undefined =
-			(composePath || envPath !== undefined || moveFromDir || oldComposePath || oldEnvPath)
-				? { composePath, envPath, moveFromDir, oldComposePath, oldEnvPath }
-				: undefined;
-		if (pathOptions) {
-			pathOptions = await unmapHawserDisplayComposeOptionsToStaging(name, envIdNum, pathOptions);
-		}
+		// Build options object for custom paths, move operation, file renames, and secret provider binding
+		const pathOptions = (composePath || envPath !== undefined || moveFromDir || oldComposePath || oldEnvPath || secretProviderId !== undefined)
+			? { composePath, envPath, moveFromDir, oldComposePath, oldEnvPath, secretProviderId }
+			: undefined;
 
 		// Persist the submitted content on EVERY accepted PUT, whether or not path fields came
 		// along. Gating this on pathOptions left Dockhand's stored copy stale while restart:true
 		// deployed the new content - a later GET then served the old copy, silently reverting the
 		// change on the next read/edit/deploy round-trip (#1383). saveStackComposeFile handles a
 		// possibly-undefined pathOptions fine (the non-restart branch already relied on that).
-		const saveResult = await saveStackComposeFile(name, content, false, envIdNum, {
-			...pathOptions,
-			...(secretProviderId !== undefined ? { secretProviderId } : {})
-		});
+		const saveResult = await saveStackComposeFile(name, content, false, envIdNum, pathOptions);
 		if (!saveResult.success) {
 			return json({ error: saveResult.error }, { status: 500 });
 		}
