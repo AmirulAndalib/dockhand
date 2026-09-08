@@ -4,7 +4,7 @@ import {
 	type ScheduleTrigger
 } from './db';
 import { appendRunLog, runLogFileName, SizeBudgetTracker } from './deploy-log-store';
-import { summarize } from './deploy-summary-core';
+import { summarize } from '$lib/utils/deploy-summary-core';
 import { buildRunDetails, type DeployRunOptions } from './deploy-run-record-core';
 import { redactLine } from './secret-redaction';
 import type { RunRecorder } from './sse';
@@ -43,8 +43,11 @@ export class DeployRunRecorder implements RunRecorder {
 	private readonly runId: string;
 	private readonly startedAtMs: number;
 	private readonly options: DeployRunOptions;
-	private readonly composeHash: string;
-	private readonly envHash: string;
+	/** Not readonly: setContentHashes() fills these after construction for callers that
+	 *  create the recorder before the compose content is known (the UI git-deploy path,
+	 *  which records the clone/read stages before it has the compose to hash). */
+	private composeHash: string;
+	private envHash: string;
 	private readonly userId?: number;
 	/** F5 fix: which environment this run belongs to (or null) -- determines the ON-DISK
 	 *  directory its log file lives in and which environment's size budget it counts
@@ -143,6 +146,15 @@ export class DeployRunRecorder implements RunRecorder {
 		for (const value of values) {
 			if (!this.secrets.includes(value)) this.secrets.push(value);
 		}
+	}
+
+	/** Set the compose/env content hashes once they are known -- for callers that create
+	 *  the recorder before the compose content is available (the UI git-deploy path). The
+	 *  hashes are only read at end() (into the stored details), so this is safe any time
+	 *  before the run closes. */
+	setContentHashes(composeHash: string, envHash: string): void {
+		this.composeHash = composeHash;
+		this.envHash = envHash;
 	}
 
 	/**

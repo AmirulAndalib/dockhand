@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { DeploySummary } from './deploy-summary-core';
+import type { DeploySummary } from '$lib/utils/deploy-summary-core';
 
 /**
  * Assembles the `details` JSON stored on a stack_deploy schedule_executions row.

@@ -22409,6 +22409,12 @@
               }
             }
           },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission denied (the :view permission for the requested schedule type's resource - stacks/backups/schedules)"
+          },
           "500": {
             "description": "Unexpected error while loading execution history"
           }
@@ -22485,6 +22491,12 @@
           "400": {
             "description": "Invalid execution id"
           },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Permission denied (the :view permission for the row's resource), or no access to its environment (enterprise)"
+          },
           "404": {
             "description": "Execution not found"
           },
@@ -22543,8 +22555,14 @@
           "400": {
             "description": "Invalid execution id"
           },
+          "401": {
+            "description": "Authentication required"
+          },
           "403": {
-            "description": "Permission denied (RBAC 'schedules:edit' missing)"
+            "description": "Permission denied (the :edit permission for the row's resource), or no access to its environment (enterprise)"
+          },
+          "404": {
+            "description": "Execution not found"
           },
           "500": {
             "description": "Unexpected error while deleting the execution"

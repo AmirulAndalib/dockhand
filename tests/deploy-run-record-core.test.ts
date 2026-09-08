@@ -6,6 +6,7 @@ describe('buildRunDetails', () => {
 		const d = buildRunDetails({
 			options: { pull: false, build: true, forceRecreate: true },
 			summary: { containersCreated: 2, containersStarted: 2, containersRecreated: 0,
+			           containerNames: ['app-1'],
 			           imagesBuilt: ['app:1'], imagesPulled: [], buildSteps: 3, buildStepsCached: 1,
 			           digest: undefined },
 			exitCode: 0,

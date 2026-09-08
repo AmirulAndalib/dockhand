@@ -4277,6 +4277,32 @@ export async function saveDashboardPreferences(data: {
 // =============================================================================
 
 export type ScheduleType = 'container_update' | 'git_stack_sync' | 'system_cleanup' | 'env_update_check' | 'image_prune' | 'backup' | 'restore' | 'stack_deploy' | 'deploy_log_reconcile';
+
+// Runtime list of every ScheduleType. Used to bound a no-type-filter executions
+// query to the caller's viewable types (viewableScheduleTypes). The two type
+// assertions below make it a real drift-guard: `satisfies` rejects a bogus value,
+// and the bidirectional _exhaustive check fails to compile if a union member is
+// missing from (or extra in) this array.
+export const ALL_SCHEDULE_TYPES = [
+	'container_update',
+	'git_stack_sync',
+	'system_cleanup',
+	'env_update_check',
+	'image_prune',
+	'backup',
+	'restore',
+	'stack_deploy',
+	'deploy_log_reconcile'
+] as const satisfies readonly ScheduleType[];
+// Compile error if ALL_SCHEDULE_TYPES and ScheduleType ever diverge.
+type _ScheduleTypeExhaustive =
+	Exclude<ScheduleType, (typeof ALL_SCHEDULE_TYPES)[number]> extends never
+		? Exclude<(typeof ALL_SCHEDULE_TYPES)[number], ScheduleType> extends never
+			? true
+			: never
+		: never;
+const _scheduleTypeExhaustive: _ScheduleTypeExhaustive = true;
+void _scheduleTypeExhaustive;
 export type ScheduleTrigger = 'cron' | 'webhook' | 'manual' | 'startup';
 export type ScheduleStatus =
 	| 'queued'
@@ -4334,8 +4360,19 @@ export interface ScheduleExecutionUpdateData {
 
 export interface ScheduleExecutionFilters {
 	scheduleType?: ScheduleType;
+	// Enterprise per-resource RBAC: restrict to this allow-list of types when the
+	// caller lacks view on every resource (see viewableScheduleTypes). An empty
+	// array matches nothing (drizzle inArray([]) -> false), which is the correct
+	// "caller may see no types" result.
+	scheduleTypes?: ScheduleType[];
 	scheduleId?: number;
 	environmentId?: number | null;
+	// Enterprise env-scoped RBAC: restrict to these environment ids. A row with a
+	// NULL environmentId (system schedules, local-env deploys) is always included
+	// -- those are not attributed to any environment, matching how the per-run
+	// deploy access checks treat null (deploy-run-access.ts). Ignored when the
+	// caller has all-environment access (pass undefined).
+	environmentIds?: number[];
 	// Powers "runs for this stack" lookups (schedule_executions_entity_env_idx) --
 	// paired with environmentId, an exact match on the (entity_name, environment_id)
 	// index this filter was added for.
@@ -4459,6 +4496,9 @@ export async function getScheduleExecutions(filters: ScheduleExecutionFilters = 
 	if (filters.scheduleType) {
 		conditions.push(eq(scheduleExecutions.scheduleType, filters.scheduleType));
 	}
+	if (filters.scheduleTypes !== undefined) {
+		conditions.push(inArray(scheduleExecutions.scheduleType, filters.scheduleTypes));
+	}
 	if (filters.scheduleId !== undefined) {
 		conditions.push(eq(scheduleExecutions.scheduleId, filters.scheduleId));
 	}
@@ -4468,6 +4508,15 @@ export async function getScheduleExecutions(filters: ScheduleExecutionFilters = 
 		} else {
 			conditions.push(eq(scheduleExecutions.environmentId, filters.environmentId));
 		}
+	}
+	// Enterprise env-scoping: accessible envs OR a null (unattributed) env.
+	if (filters.environmentIds !== undefined) {
+		conditions.push(
+			or(
+				isNull(scheduleExecutions.environmentId),
+				inArray(scheduleExecutions.environmentId, filters.environmentIds)
+			)
+		);
 	}
 	if (filters.entityName !== undefined) {
 		conditions.push(eq(scheduleExecutions.entityName, filters.entityName));

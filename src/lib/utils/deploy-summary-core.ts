@@ -13,6 +13,8 @@ export interface DeploySummary {
 	containersCreated: number;
 	containersRecreated: number;
 	containersStarted: number;
+	/** Distinct container names seen in the log, in first-appearance order. */
+	containerNames: string[];
 	imagesBuilt: string[];
 	imagesPulled: string[];
 	buildSteps: number;
@@ -30,6 +32,9 @@ export function summarize(lines: string[]): DeploySummary {
 	const created = new Set<string>();
 	const recreated = new Set<string>();
 	const started = new Set<string>();
+	// Distinct names across all verbs, insertion-ordered (a name recurs across
+	// Recreated + Started, so this is not any single verb Set).
+	const names = new Set<string>();
 	const built = new Set<string>();
 	const pulled = new Set<string>();
 	let buildSteps = 0;
@@ -40,6 +45,7 @@ export function summarize(lines: string[]): DeploySummary {
 		const c = CONTAINER.exec(line);
 		if (c) {
 			const [, name, verb] = c;
+			names.add(name);
 			if (verb === 'Created') created.add(name);
 			else if (verb === 'Recreated') recreated.add(name);
 			else started.add(name);
@@ -61,6 +67,7 @@ export function summarize(lines: string[]): DeploySummary {
 		containersCreated: created.size,
 		containersRecreated: recreated.size,
 		containersStarted: started.size,
+		containerNames: [...names],
 		imagesBuilt: [...built],
 		imagesPulled: [...pulled],
 		buildSteps,

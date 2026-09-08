@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { summarize } from '../src/lib/server/deploy-summary-core';
+import { summarize } from '../src/lib/utils/deploy-summary-core';
 
 const REAL_RUN = [
 	' Image alpine:3.21 Pulling ',
@@ -74,6 +74,23 @@ describe('summarize', () => {
 		]);
 		expect(s.containersRecreated).toBe(1);
 		expect(s.containersCreated).toBe(0);
+	});
+
+	test('collects distinct container names in first-appearance order', () => {
+		// The name recurs across Created + Starting + Started, so containerNames is not
+		// any single verb Set -- it is the ordered union, each name once.
+		const s = summarize(REAL_RUN);
+		expect(s.containerNames).toEqual(['probea-built-1', 'probea-plain-1']);
+	});
+
+	test('a recreated container appears once in containerNames', () => {
+		const s = summarize([
+			' Container a Recreate ',
+			' Container a Recreated ',
+			' Container a Starting ',
+			' Container a Started '
+		]);
+		expect(s.containerNames).toEqual(['a']);
 	});
 
 	test('an image that was already local produces no pull entry at all', () => {

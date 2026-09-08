@@ -15,6 +15,8 @@
 	import ComposeValidatePanel from './ComposeValidatePanel.svelte';
 	import BackupPanel from '../containers/BackupPanel.svelte';
 	import DeploysPanel from './DeploysPanel.svelte';
+	import DeployOutputHeader from './DeployOutputHeader.svelte';
+	import { deployTallyFromRuns } from '$lib/utils/deploy-run-view';
 	import { volumesForStack, type VolumeInfo } from '$lib/utils/mounts';
 	import { fetchBackupExecutions } from '$lib/utils/backup';
 	import type { Component } from 'svelte';
@@ -245,6 +247,48 @@
 		outputLines = [...outputLines, line];
 	}
 
+	// Bumped after a deploy finishes so the Deploys tab re-fetches and shows the new run.
+	let deploysReloadKey = $state(0);
+	// Deploys tab badge tally (total + ok/failed). Fetched cheaply when the modal
+	// opens so the badge shows immediately (not only once the tab is first viewed);
+	// DeploysPanel's onTally then keeps it fresh once the tab is open.
+	let deploysTally = $state<{ total: number; ok: number; failed: number }>({ total: 0, ok: 0, failed: 0 });
+	// Whether run history exists at all -- gates the Deploys tab for a read-only /
+	// not-yet-synced stack. Set ONLY by the parent's own fetch below, never by the
+	// panel's live onTally, so opening the tab (which briefly reports total 0 while
+	// loading) can't make the tab hide itself out from under the user.
+	let deploysHistoryExists = $state(false);
+
+	async function loadDeploysCount() {
+		// Deploy history is keyed by stackName+env (schedule_executions), independent of
+		// whether a local compose file exists -- so load it even for a read-only /
+		// not-yet-synced stack (needsFileLocation), letting the Deploys tab appear when
+		// there ARE runs to show.
+		if (mode !== 'edit' || !stackName) {
+			deploysTally = { total: 0, ok: 0, failed: 0 };
+			deploysHistoryExists = false;
+			return;
+		}
+		try {
+			const envId = $currentEnvironment?.id ?? null;
+			const res = await fetch(appendEnvParam(`/api/stacks/${encodeURIComponent(stackName)}/deploys`, envId));
+			if (!res.ok) return;
+			const data = await res.json();
+			deploysTally = deployTallyFromRuns(Array.isArray(data?.runs) ? data.runs : []);
+			deploysHistoryExists = deploysTally.total > 0;
+		} catch {
+			// Non-fatal: the badge just stays at its current value.
+		}
+	}
+
+	// Refresh the badge count when the modal opens (and after a deploy bumps the key).
+	$effect(() => {
+		if (open) {
+			void deploysReloadKey; // re-count after a deploy finishes
+			void loadDeploysCount();
+		}
+	});
+
 	function finishOutput(output: string | undefined, ok: boolean, exitCode?: number) {
 		outputRunning = false;
 		outputOk = ok;
@@ -253,10 +297,29 @@
 		if (outputLines.length === 0 && output) {
 			outputLines = output.split('\n');
 		}
+		deploysReloadKey++;
+	}
+
+	// Dismiss the output panel (only allowed once the run has finished; the run
+	// keeps going regardless - this just hides its log).
+	function closeOutput() {
+		outputLines = [];
+		outputTitle = '';
+		outputOk = undefined;
+		outputMs = undefined;
+		outputExitCode = undefined;
 	}
 
 	const outputStatusLine = $derived(
 		formatRunStatus({ running: outputRunning, ok: outputOk, ms: outputMs, exitCode: outputExitCode })
+	);
+	// DeployOutputHeader takes a verb + state (not the old title/running/ok): split the
+	// stackName off the title and map running/ok to the shared state enum.
+	const outputVerb = $derived(
+		stackName && outputTitle.endsWith(stackName) ? outputTitle.slice(0, -stackName.length).trim() : outputTitle
+	);
+	const outputState = $derived<'running' | 'complete' | 'error'>(
+		outputRunning ? 'running' : outputOk === false ? 'error' : 'complete'
 	);
 
 	// Stack exists warning dialog state
@@ -1350,6 +1413,19 @@
 					} catch (e) {
 						console.error('Failed to fetch stack containers:', e);
 					}
+
+					// Load the stack's icon even when the compose isn't local (read-only git
+					// stack): the icon is Dockhand metadata, not repo content, so the header
+					// must still show a custom icon the user set.
+					try {
+						const sourcesRes = await fetch(appendEnvParam('/api/stacks/sources', envId));
+						if (sourcesRes.ok) {
+							const sourceMap = await sourcesRes.json();
+							formIcon = sourceMap?.[stackName]?.icon ?? null;
+						}
+					} catch (e) {
+						console.warn('Failed to load stack icon:', e);
+					}
 					return;
 				}
 				throw new Error((typeof data.error === 'string' ? data.error : data.message) || 'Failed to load compose file');
@@ -2080,26 +2156,22 @@
 			<div class="flex items-center justify-between">
 				<div class="flex items-center gap-3">
 					<div class="flex items-center gap-2">
-						{#if !readonly}
-							<button
-								type="button"
-								title="Change stack icon"
-								onclick={() => (showIconPicker = true)}
-								class="p-1.5 rounded-md bg-zinc-200 dark:bg-zinc-700 hover:ring-2 hover:ring-primary transition-shadow"
-							>
-								{#if pendingUploadImage}
-									<img src={pendingUploadImage} alt="" class="w-4 h-4 rounded object-cover" />
-								{:else if formIcon}
-									<StackIcon icon={formIcon} {stackName} envId={$currentEnvironment?.id ?? null} class="w-4 h-4 text-zinc-600 dark:text-zinc-300" />
-								{:else}
-									<Layers class="w-4 h-4 text-zinc-600 dark:text-zinc-300" />
-								{/if}
-							</button>
-						{:else}
-							<div class="p-1.5 rounded-md bg-zinc-200 dark:bg-zinc-700">
+						<!-- The stack icon is Dockhand metadata (stored via the /icon API), not
+						     repo content, so it stays editable even for a read-only git stack. -->
+						<button
+							type="button"
+							title="Change stack icon"
+							onclick={() => (showIconPicker = true)}
+							class="p-1.5 rounded-md bg-zinc-200 dark:bg-zinc-700 hover:ring-2 hover:ring-primary transition-shadow"
+						>
+							{#if pendingUploadImage}
+								<img src={pendingUploadImage} alt="" class="w-4 h-4 rounded object-cover" />
+							{:else if formIcon}
+								<StackIcon icon={formIcon} {stackName} envId={$currentEnvironment?.id ?? null} class="w-4 h-4 text-zinc-600 dark:text-zinc-300" />
+							{:else}
 								<Layers class="w-4 h-4 text-zinc-600 dark:text-zinc-300" />
-							</div>
-						{/if}
+							{/if}
+						</button>
 						<div>
 							<Dialog.Title class="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
 								{#if mode === 'create'}
@@ -2167,17 +2239,27 @@
 					{#if backupTally.failed > 0}<span class="inline-flex items-center gap-0.5 rounded-full bg-red-500/15 px-1.5 text-[10px] font-semibold text-red-500"><X class="w-2.5 h-2.5" />{backupTally.failed}</span>{/if}
 				</button>
 			{/if}
-			<!-- Deploys tab: recorded run history for this stack (Task 17). Same gate
-			     shape as Backups above minus the beta flag -- hidden for untracked
-			     stacks (no compose file means no deploy history either) and only in
-			     edit mode, where stackName/envId are actually known. -->
-			{#if mode === 'edit' && !needsFileLocation}
+			<!-- Deploys tab: recorded run history (keyed by stackName+env, independent of
+			     the local compose file). Shown with a synced compose, OR -- for a
+			     read-only / not-yet-synced git stack with no local compose -- only when
+			     there is history to show, so an empty tab never appears. Edit mode only,
+			     where stackName/envId are known. -->
+			{#if mode === 'edit' && (!needsFileLocation || deploysHistoryExists)}
 				<button
 					type="button"
 					class="relative -mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors {activeTab === 'deploys' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}"
 					onclick={() => activeTab = 'deploys'}
 				>
 					<History class="h-3.5 w-3.5" /> Deploys
+					{#if deploysTally.ok > 0}
+						<span class="inline-flex items-center gap-0.5 rounded-full bg-emerald-500/15 px-1.5 text-[10px] font-medium text-emerald-500"><Check class="h-2.5 w-2.5" />{deploysTally.ok}</span>
+					{/if}
+					{#if deploysTally.failed > 0}
+						<span class="inline-flex items-center gap-0.5 rounded-full bg-red-500/15 px-1.5 text-[10px] font-semibold text-red-500"><X class="h-2.5 w-2.5" />{deploysTally.failed}</span>
+					{/if}
+					{#if deploysTally.total > 0 && deploysTally.ok === 0 && deploysTally.failed === 0}
+						<Badge variant="secondary" class="ml-0.5 h-4 min-w-4 justify-center rounded-full px-1 text-[10px] tabular-nums">{deploysTally.total}</Badge>
+					{/if}
 				</button>
 			{/if}
 		</div>
@@ -2522,10 +2604,11 @@
 								onTally={(t) => (backupTally = t)}
 							/>
 						</div>
-					{:else if activeTab === 'deploys' && !needsFileLocation}
-						<!-- Deploys tab (never for untracked stacks — same reasoning as Backups above) -->
-						<div class="h-full flex-1 overflow-auto p-4">
-							<DeploysPanel {stackName} envId={$currentEnvironment?.id ?? null} theme={editorTheme} />
+					{:else if activeTab === 'deploys' && (!needsFileLocation || deploysHistoryExists)}
+						<!-- Deploys tab: shown with a synced compose, or when a read-only /
+						     not-yet-synced stack still has run history to show. -->
+						<div class="flex h-full min-h-0 flex-1 flex-col p-4">
+							<DeploysPanel {stackName} envId={$currentEnvironment?.id ?? null} theme={editorTheme} reloadKey={deploysReloadKey} onTally={(t) => (deploysTally = t)} />
 						</div>
 					{/if}
 				</div>
@@ -2552,10 +2635,25 @@
 			</div>
 			<div class="shrink-0 flex flex-col min-h-0" style="height: {outputSplitRatio}%">
 				<div class="px-5 py-1.5 text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-2 flex-shrink-0">
-					{#if outputRunning}
-						<Loader2 class="w-3 h-3 animate-spin" />
+					<DeployOutputHeader
+						verb={outputVerb}
+						{stackName}
+						stackIcon={formIcon}
+						envId={$currentEnvironment?.id ?? null}
+						state={outputState}
+						statusLine={outputStatusLine}
+						iconClass="w-3.5 h-3.5"
+					/>
+					{#if !outputRunning}
+						<button
+							type="button"
+							onclick={closeOutput}
+							title="Close output"
+							class="ml-auto p-0.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors"
+						>
+							<X class="w-3.5 h-3.5" />
+						</button>
 					{/if}
-					{outputTitle} — {outputStatusLine}
 				</div>
 				<LogViewer
 					logs={outputLines.join('\n')}

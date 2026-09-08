@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { RefreshCw, Copy, Download, WrapText, ArrowDownToLine, Search, ChevronUp, ChevronDown, X, Type, Eraser, Filter, Hash } from 'lucide-svelte';
-	import { wrapHtmlLines } from '$lib/utils/log-lines';
+	import { RefreshCw, Copy, Check, Download, WrapText, ArrowDownToLine, Search, ChevronUp, ChevronDown, X, Type, Eraser, Filter, Hash } from 'lucide-svelte';
+	import { wrapHtmlLines, stripLogMarkers } from '$lib/utils/log-lines';
 	import { copyToClipboard } from '$lib/utils/clipboard';
 	import { downloadFileName, stripAnsi } from '$lib/utils/log-download-name';
 	import { isScrolledToBottom, shouldResetScrollPause } from '$lib/utils/scroll-position';
@@ -49,7 +49,13 @@
 	let logsRef: HTMLDivElement;
 	let wordWrap = $state(true);
 	let showLineNumbers = $state(typeof window !== 'undefined' && localStorage.getItem('dockhand-log-line-numbers') === 'true');
-	let fontSize = $state(12);
+	const FONT_SIZE_KEY = 'dockhand-log-font-size';
+	function initialFontSize(): number {
+		if (typeof window === 'undefined') return 12;
+		const n = Number(localStorage.getItem(FONT_SIZE_KEY));
+		return [10, 12, 14, 16].includes(n) ? n : 12;
+	}
+	let fontSize = $state(initialFontSize());
 
 	// RAF-based auto-scroll
 	let scrollRafPending = false;
@@ -125,17 +131,21 @@
 		userScrolledUp = !isScrolledToBottom(scrollTop, scrollHeight, clientHeight);
 	}
 
-	// Copy logs to clipboard
+	// Copy logs to clipboard, with a brief "copied" tick. copyToClipboard handles the
+	// non-secure-context (HTTP) fallback, so this works off localhost too.
+	let copied = $state(false);
 	async function copyLogs() {
-		if (logs) {
-			await copyToClipboard(stripAnsi(logs));
-		}
+		if (!logs) return;
+		const ok = await copyToClipboard(stripLogMarkers(stripAnsi(logs)));
+		if (!ok) return;
+		copied = true;
+		setTimeout(() => { copied = false; }, 1500);
 	}
 
 	// Download logs as txt file
 	function downloadLogs() {
 		if (logs) {
-			const blob = new Blob([stripAnsi(logs)], { type: 'text/plain' });
+			const blob = new Blob([stripLogMarkers(stripAnsi(logs))], { type: 'text/plain' });
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
@@ -283,10 +293,13 @@
 			>
 				<ArrowDownToLine class="w-3 h-3" />
 			</button>
-			<!-- Font size -->
-			<Select.Root type="single" value={String(fontSize)} onValueChange={(v) => fontSize = Number(v)}>
-				<Select.Trigger class="h-6 w-16 text-xs px-1.5 {dark ? 'bg-zinc-800 border-zinc-700 text-zinc-300' : 'bg-white border-gray-300 text-gray-700'}">
-					<Type class="w-3 h-3 mr-1 {dark ? 'text-zinc-400' : 'text-gray-400'}" />
+			<!-- Font size. The shadcn Select.Trigger base carries a border, shadow, h-9,
+			     px-3 and a built-in chevron that make it stand out from the flat icon
+			     buttons around it -- neutralize all of it with ! overrides and hide the
+			     chevron so it reads as one more toolbar control. -->
+			<Select.Root type="single" value={String(fontSize)} onValueChange={(v) => { fontSize = Number(v); localStorage.setItem(FONT_SIZE_KEY, String(fontSize)); }}>
+				<Select.Trigger class="!h-6 !w-auto !gap-1 !rounded !border-0 !bg-transparent !px-1.5 !py-0.5 !text-xs !shadow-none transition-colors dark:!bg-transparent [&>svg:last-child]:hidden {dark ? 'text-zinc-500 hover:text-zinc-300 hover:!bg-zinc-800' : 'text-gray-500 hover:text-gray-700 hover:!bg-gray-300'}" title="Font size">
+					<Type class="w-3 h-3" />
 					<span>{fontSize}px</span>
 				</Select.Trigger>
 				<Select.Content>
@@ -361,9 +374,13 @@
 			<button
 				onclick={copyLogs}
 				class="p-1 rounded transition-colors {dark ? 'hover:bg-zinc-800' : 'hover:bg-gray-300'}"
-				title="Copy logs"
+				title={copied ? 'Copied!' : 'Copy logs'}
 			>
-				<Copy class="w-3 h-3 {dark ? 'text-zinc-500 hover:text-zinc-300' : 'text-gray-500 hover:text-gray-700'}" />
+				{#if copied}
+					<Check class="w-3 h-3 text-emerald-500" />
+				{:else}
+					<Copy class="w-3 h-3 {dark ? 'text-zinc-500 hover:text-zinc-300' : 'text-gray-500 hover:text-gray-700'}" />
+				{/if}
 			</button>
 			<!-- Download -->
 			<button
@@ -412,6 +429,24 @@
 </div>
 
 <style>
+	/* Git logo prefixing git-operation log lines (see wrapHtmlLines). The line reserves a
+	   2ch left gutter and the icon is pulled into it with a matching negative margin, so
+	   the TEXT after the icon starts at 2ch on every git line -- and compose lines (which
+	   carry a leading space, ~1ch) are close enough to read as one column. Icon is
+	   ~1.1em (a touch larger than the text so it reads as a logo). Scoped to git lines. */
+	:global(.log-line-git) {
+		padding-left: 2ch;
+	}
+	:global(.log-git-icon) {
+		display: inline-block;
+		width: 1.1em;
+		height: 1.1em;
+		margin-left: -2ch;
+		margin-right: calc(2ch - 1.1em);
+		vertical-align: -0.2em;
+		opacity: 0.75;
+	}
+
 	:global(.search-match) {
 		background-color: rgba(234, 179, 8, 0.4);
 		color: #fef3c7;

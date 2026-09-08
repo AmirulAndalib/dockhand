@@ -1,6 +1,7 @@
 // tests/sse-run-recorder.test.ts
 import { describe, expect, test } from 'bun:test';
 import { createJobResponse, type RunRecorder } from '../src/lib/server/sse';
+import { getJob } from '../src/lib/server/jobs';
 
 /** A fake RunRecorder that records every line() call and resolves `ended` when end() fires. */
 function createFakeRecorder() {
@@ -18,6 +19,7 @@ function createFakeRecorder() {
 			// line()/end() plumbing, not the F4 addSecrets() wiring (see
 			// deploy-run-record.test.ts and the route-level regression tests for that).
 		},
+		setContentHashes() {},
 		async end(ok: boolean, exitCode?: number, error?: string) {
 			resolveEnded({ ok, exitCode, error });
 		}
@@ -157,6 +159,7 @@ describe('createJobResponse RunRecorder hook', () => {
 		const recorder: RunRecorder = {
 			line() {},
 			addSecrets() {},
+			setContentHashes() {},
 			async end() {
 				calls++;
 				throw new Error('recorder failure');
@@ -177,6 +180,60 @@ describe('createJobResponse RunRecorder hook', () => {
 		await new Promise((resolve) => setTimeout(resolve, 20));
 
 		expect(calls).toBe(1);
+	});
+
+	test('JSON path: a recorder.end() that throws does NOT break the response body', async () => {
+		// The recorder is a best-effort side effect (writes the run log); a failure to
+		// close it must never prevent the client from getting its JSON result.
+		const recorder: RunRecorder = {
+			line() {},
+			addSecrets() {},
+			setContentHashes() {},
+			async end() {
+				throw new Error('log write failed');
+			}
+		};
+		const request = new Request('http://x', { headers: { Accept: 'application/json' } });
+		const response = createJobResponse(
+			async (send) => {
+				send('result', { success: true, output: 'ok' });
+			},
+			request,
+			recorder
+		);
+		const body = await response.json();
+		expect(body).toEqual({ success: true, output: 'ok' });
+	});
+
+	test('streaming path: a recorder.end() that throws does NOT flip a successful job to failed', async () => {
+		// A throwing end() in the .then() branch must not reach .catch() (which would
+		// failJob a run that actually succeeded) -- end() is best-effort. Asserting the
+		// job STATUS (not just the end() call count) is what distinguishes the fix: the
+		// pre-existing recorderEnded guard already kept calls===1, but without the
+		// try/catch the throw propagated to .catch() and failJob flipped 'done' -> 'error'.
+		const recorder: RunRecorder = {
+			line() {},
+			addSecrets() {},
+			setContentHashes() {},
+			async end(ok: boolean) {
+				if (ok) throw new Error('log write failed'); // only the success close throws
+			}
+		};
+		const request = new Request('http://x'); // fire-and-forget path
+		const response = createJobResponse(
+			async (send) => {
+				send('result', { success: true, output: 'done' });
+			},
+			request,
+			recorder
+		);
+		const { jobId } = await response.json();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		const job = getJob(jobId);
+		expect(job?.status).toBe('done');
+		const result = job?.lines.findLast((l) => l.event === 'result')?.data as { success?: boolean } | undefined;
+		expect(result?.success).toBe(true);
 	});
 
 	test('omitting the recorder changes nothing (backward compat)', async () => {

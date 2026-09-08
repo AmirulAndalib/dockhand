@@ -27,6 +27,10 @@ export interface RunRecorder {
 	 * the only method that reads the accumulated secret list -- see deploy-run-record.ts.
 	 */
 	addSecrets(values: string[]): void;
+	/** Sets the compose/env content hashes after construction, for callers that create the
+	 *  recorder before the compose content is known (the UI git-deploy path records the
+	 *  clone/read stages first). Read only at end(), so safe any time before the run closes. */
+	setContentHashes(composeHash: string, envHash: string): void;
 	/** Called exactly once, on every path out of the operation (success, failure, or throw). */
 	end(ok: boolean, exitCode?: number, error?: string): Promise<void>;
 }
@@ -98,9 +102,16 @@ export function createJobResponse(
 					// Awaited here, before enqueue/close: this async start() is the
 					// only place on the JSON path where "the run is over" exists as a
 					// moment in time, so the recorder's close is placed right on it.
+					// Best-effort: the recorder is an optional side effect (writes the run
+					// log), so a failure to close it must never block the API response
+					// the client is waiting for.
 					if (recorder) {
 						const { ok, error } = endFromResult(resultData);
-						await recorder.end(ok, undefined, error);
+						try {
+							await recorder.end(ok, undefined, error);
+						} catch (e) {
+							console.error('Failed to close deploy run recorder (JSON path):', e);
+						}
 					}
 				}
 				controller.enqueue(encoder.encode(JSON.stringify(resultData)));
@@ -144,16 +155,29 @@ export function createJobResponse(
 			// the path every browser call takes (neither +page.svelte nor StackModal.svelte
 			// send an Accept header) -- reuse the JSON path's endFromResult() instead of
 			// hardcoding end(true), or every such run was recorded as a success.
+			// Best-effort: a failure to close the recorder must not throw into .catch()
+			// below, which would fail an already-succeeded job just because the log
+			// write failed.
 			if (recorder) {
 				recorderEnded = true;
 				const { ok, error } = endFromResult(resultData);
-				await recorder.end(ok, undefined, error);
+				try {
+					await recorder.end(ok, undefined, error);
+				} catch (e) {
+					console.error('Failed to close deploy run recorder (stream path):', e);
+				}
 			}
 		})
 		.catch(async (err: unknown) => {
 			const message = err instanceof Error ? err.message : String(err);
 			failJob(job, message);
-			if (recorder && !recorderEnded) await recorder.end(false, undefined, message);
+			if (recorder && !recorderEnded) {
+				try {
+					await recorder.end(false, undefined, message);
+				} catch (e) {
+					console.error('Failed to close deploy run recorder (stream error path):', e);
+				}
+			}
 		});
 
 	return json({ jobId: job.id });

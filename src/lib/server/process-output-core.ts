@@ -22,29 +22,40 @@ export function collectProcess(
 	return new Promise((resolve, reject) => {
 		const stdoutChunks: Buffer[] = [];
 		const stderrChunks: Buffer[] = [];
-		let lineBuffer = '';
+		// One buffer PER stream. A single shared buffer would splice a partial
+		// stdout line (no trailing '\n') onto the next stderr chunk (and vice
+		// versa) when the two streams interleave, producing corrupted lines.
+		let stdoutBuffer = '';
+		let stderrBuffer = '';
 
-		const emitLines = (chunk: string) => {
-			if (!onLine) return;
-			lineBuffer += chunk;
-			const parts = lineBuffer.split('\n');
-			lineBuffer = parts.pop() ?? ''; // last part may be incomplete
+		// Emit each complete line in `buf + chunk`, return the trailing partial.
+		const emitLines = (buf: string, chunk: string): string => {
+			if (!onLine) return buf;
+			const parts = (buf + chunk).split('\n');
+			const rest = parts.pop() ?? ''; // last part may be incomplete
 			for (const line of parts) onLine(line);
+			return rest;
 		};
 
 		proc.stdout?.on('data', (chunk: Buffer) => {
 			stdoutChunks.push(chunk);
-			emitLines(chunk.toString());
+			stdoutBuffer = emitLines(stdoutBuffer, chunk.toString());
 		});
 		proc.stderr?.on('data', (chunk: Buffer) => {
 			stderrChunks.push(chunk);
-			emitLines(chunk.toString());
+			stderrBuffer = emitLines(stderrBuffer, chunk.toString());
 		});
 		proc.on('error', reject);
 		proc.on('close', (code) => {
-			if (onLine && lineBuffer.length > 0) {
-				onLine(lineBuffer);
-				lineBuffer = '';
+			// Flush each stream's trailing partial line (stdout before stderr for a
+			// deterministic order).
+			if (onLine && stdoutBuffer.length > 0) {
+				onLine(stdoutBuffer);
+				stdoutBuffer = '';
+			}
+			if (onLine && stderrBuffer.length > 0) {
+				onLine(stderrBuffer);
+				stderrBuffer = '';
 			}
 			resolve({
 				exitCode: code ?? 1,

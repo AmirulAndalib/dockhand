@@ -16,6 +16,7 @@ import {
 	lastErrorLine,
 	buildDeployRunView,
 	buildDeployLogPanelState,
+	deployTallyFromRuns,
 	type DeployRun,
 	type DeployRunSummary
 } from '../src/lib/utils/deploy-run-view';
@@ -205,6 +206,16 @@ describe('buildDeployRunView', () => {
 		expect(view.buildStatus).toBe('Build status unknown');
 		expect(view.imagesBuilt).toEqual([]);
 		expect(view.imagesPulled).toEqual([]);
+		// No summary -> no container names (for the name-matched icon chips).
+		expect(view.containerNames).toEqual([]);
+	});
+
+	test('containerNames pass through from the summary (and default to [] when absent)', () => {
+		const withNames = buildDeployRunView(run({ details: { summary: summary({ containerNames: ['app-1', 'redis-1'] }) } }));
+		expect(withNames.containerNames).toEqual(['app-1', 'redis-1']);
+		// A summary that predates the field (undefined) reads as an empty list, never undefined.
+		const noNames = buildDeployRunView(run({ details: { summary: summary() } }));
+		expect(noNames.containerNames).toEqual([]);
 	});
 
 	test('truncated is surfaced only when the record actually says so', () => {
@@ -287,5 +298,29 @@ describe('buildDeployLogPanelState', () => {
 	test('a run with no details at all reads as available, not truncated, deletable', () => {
 		const state = buildDeployLogPanelState(run({ status: 'success', details: null }));
 		expect(state).toEqual({ logMissing: false, truncated: false, deletable: true });
+	});
+});
+
+describe('deployTallyFromRuns', () => {
+	const r = (status: string) => ({ status }) as Pick<DeployRun, 'status'>;
+
+	test('counts success as ok and failed as failed', () => {
+		expect(deployTallyFromRuns([r('success'), r('success'), r('failed')])).toEqual({
+			total: 3,
+			ok: 2,
+			failed: 1
+		});
+	});
+
+	test('running/queued/other count as neither ok nor failed but still in total', () => {
+		expect(deployTallyFromRuns([r('running'), r('queued'), r('skipped'), r('success')])).toEqual({
+			total: 4,
+			ok: 1,
+			failed: 0
+		});
+	});
+
+	test('empty list is all zeros', () => {
+		expect(deployTallyFromRuns([])).toEqual({ total: 0, ok: 0, failed: 0 });
 	});
 });

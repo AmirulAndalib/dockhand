@@ -1137,13 +1137,29 @@ services:
 					<div class="space-y-1 pt-2 border-t">
 						<div class="flex items-center gap-3">
 							<Label>Deploy log reconcile</Label>
+							<Tooltip.Provider delayDuration={100}>
+								<Tooltip.Root>
+									<Tooltip.Trigger>
+										<HelpCircle class="w-4 h-4 text-muted-foreground cursor-help" />
+									</Tooltip.Trigger>
+									<Tooltip.Portal>
+										<Tooltip.Content side="right" sideOffset={8} class="!w-80">
+											Every deploy from Dockhand keeps a log file on disk, linked to its run in the
+											Deploys tab. This job runs on a schedule to keep the two in sync: it deletes
+											orphaned log files whose deploy run was already removed, and marks a run whose
+											log file has gone missing (so the Deploys tab shows "log unavailable" instead
+											of a blank). It never deletes a deploy run itself.
+										</Tooltip.Content>
+									</Tooltip.Portal>
+								</Tooltip.Root>
+							</Tooltip.Provider>
 							<TogglePill
 								checked={deployLogReconcileEnabled}
 								onchange={handleDeployLogReconcileEnabledChange}
 								disabled={!$canAccess('settings', 'edit')}
 							/>
 						</div>
-						<p class="text-xs text-muted-foreground">Delete deploy-log files that no longer have a matching deploy record; deploy records that lost their log file are only flagged, never deleted</p>
+						<p class="text-xs text-muted-foreground">Keeps deploy-log files in sync with their deploy records: removes logs whose run is gone, and flags runs whose log went missing (never deletes a run).</p>
 						{#if deployLogReconcileEnabled}
 							<div class="mt-2">
 								<CronEditor

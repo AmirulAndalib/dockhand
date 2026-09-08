@@ -25,6 +25,8 @@ export interface DeployRunSummary {
 	containersCreated: number;
 	containersRecreated: number;
 	containersStarted: number;
+	/** Distinct container names seen in the log (optional: older runs predate it). */
+	containerNames?: string[];
 	imagesBuilt: string[];
 	imagesPulled: string[];
 	buildSteps: number;
@@ -67,6 +69,8 @@ export interface DeployRunView {
 	optionChips: string[];
 	imagesBuilt: string[];
 	imagesPulled: string[];
+	/** Distinct container names touched by the deploy (for name-matched icons). */
+	containerNames: string[];
 	/** Shortened last line of errorMessage -- only ever set for a failed run. */
 	errorSummary: string | null;
 	truncated: boolean;
@@ -225,7 +229,25 @@ export function buildDeployRunView(run: DeployRun): DeployRunView {
 		optionChips: formatOptionChips(run.details?.options),
 		imagesBuilt: summary?.imagesBuilt ?? [],
 		imagesPulled: summary?.imagesPulled ?? [],
+		containerNames: summary?.containerNames ?? [],
 		errorSummary: run.status === 'failed' ? lastErrorLine(run.errorMessage) : null,
 		truncated: run.details?.truncated === true
 	};
+}
+
+/** Tab-badge tally: total runs plus a success/failure split. Pure so both the
+ *  panel and its parent modals compute the same shape from a list of runs. */
+export interface DeployTally {
+	total: number;
+	ok: number;
+	failed: number;
+}
+
+export function deployTallyFromRuns(runs: Pick<DeployRun, 'status'>[]): DeployTally {
+	let ok = 0, failed = 0;
+	for (const r of runs) {
+		if (r.status === 'success') ok++;
+		else if (r.status === 'failed') failed++;
+	}
+	return { total: runs.length, ok, failed };
 }

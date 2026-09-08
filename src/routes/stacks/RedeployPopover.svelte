@@ -67,13 +67,11 @@
 	let deploying = $state(false);
 
 	async function handleDeploy() {
-		deploying = true;
-		try {
-			await onDeploy({ pull, build, forceRecreate });
-		} finally {
-			deploying = false;
-			open = false;
-		}
+		// Close the popover immediately: the output modal opens and owns the progress
+		// display, so leaving the popover stuck on "Deploying..." behind it is noise.
+		const opts = { pull, build, forceRecreate };
+		open = false;
+		await onDeploy(opts);
 	}
 
 	function handleTriggerClick(e: MouseEvent) {
