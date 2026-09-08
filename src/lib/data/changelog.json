@@ -4,10 +4,11 @@
     "date": "",
     "comingSoon": true,
     "changes": [
+      { "type": "feature", "text": "live compose output during deploys, plus a per-stack deploy history tab (#506, #1292, #1540, PR#1499, @strausmann)" },
       { "type": "fix", "text": "back up stacks whose folder is bind-mounted over the data volume (#1533)" },
       { "type": "fix", "text": "backup restore preview now works for view-only roles (#1534)" },
       { "type": "feature", "text": "warn before saving a stack whose compose file location won't survive a container recreate (#1524)" },
-      { "type": "fix", "text": "OpenAPI spec now types opaque object fields correctly and documents the validate 'existing' flag (#1531, #1530, PR#1532, @strausmann)" },
+      { "type": "fix", "text": "OpenAPI spec accuracy fixes (#1531, #1530, PR#1532, @strausmann)" },
       { "type": "fix", "text": "\"always redeploy\" git stacks now force-recreate so config changes take effect (#1523)" },
       { "type": "fix", "text": "resolve secret references (op://, keepass://, ...) pasted with surrounding quotes (#1521)" },
       { "type": "fix", "text": "deleting a secret provider now warns which stacks it unbinds (#1522)" },
