@@ -468,6 +468,7 @@
 							src="/logo.svg"
 							alt="Dockhand Logo"
 							class="h-36 w-auto object-contain"
+							style="filter: drop-shadow(0 2px 3px rgba(0,0,0,0.22));"
 						/>
 						<!-- Sparkles on DOCKHAND text area (bottom half) -->
 						<span class="sparkle sparkle-1">✦</span>
