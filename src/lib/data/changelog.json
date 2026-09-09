@@ -18,7 +18,9 @@
       { "type": "fix", "text": "container shell sessions each keep their own live terminal when you switch between them (#1516)" },
       { "type": "fix", "text": "sort container uptimes under a minute correctly instead of tying them (PR#1395, @wrlee)" },
       { "type": "fix", "text": "load the web manifest through a Cloudflare tunnel by sending credentials (PR#1513, @Macleykun)" },
-      { "type": "fix", "text": "copy the restic password over plain HTTP (#1488)" }
+      { "type": "fix", "text": "copy the restic password over plain HTTP (#1488)" },
+      { "type": "fix", "text": "scope stack backup snapshots to their own environment (#1546)" },
+      { "type": "fix", "text": "theme defaults in General settings now save and display correctly when auth is on (#1547)" }
     ],
     "imageTag": "fnsys/dockhand:v1.0.47"
   },
