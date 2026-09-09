@@ -306,6 +306,15 @@ services:
 	let semverIncludePrerelease = $state(false);
 	let semverLoaded = $state(false);
 
+	// The global theme defaults (what a new user starts with). With auth on the theme
+	// toggles here edit these, not the admin's own profile. Rendering waits on
+	// globalThemeLoaded: until the fetch fills these, a toggle handed globalValue=undefined
+	// would fall back to the admin's personal store value and show it.
+	let globalColoredActions = $state<boolean | undefined>(undefined);
+	let globalAnimateIcons = $state<boolean | undefined>(undefined);
+	let globalIndentGuides = $state<boolean | undefined>(undefined);
+	let globalThemeLoaded = $state(false);
+
 	onMount(async () => {
 		try {
 			const res = await fetch('/api/settings/semver');
@@ -318,6 +327,17 @@ services:
 			}
 		} catch { /* keep defaults */ }
 		semverLoaded = true;
+
+		try {
+			const res = await fetch('/api/settings/general');
+			if (res.ok) {
+				const g = await res.json();
+				globalColoredActions = !!g.coloredActionButtons;
+				globalAnimateIcons = g.animateIcons ?? true;
+				globalIndentGuides = !!g.editorIndentGuides;
+			}
+		} catch { /* toggles fall back to store when global value is unknown */ }
+		globalThemeLoaded = true;
 	});
 
 	async function saveSemverConfig() {
@@ -593,14 +613,20 @@ services:
 						<!-- Right column: Theme settings (always shown, with hint when auth enabled) -->
 						<div class="space-y-4">
 							<ThemeSelector />
-							<ColoredActionsToggle />
-							<AnimateIconsToggle />
-							<IndentGuidesToggle />
+							<!-- With auth on the toggles edit the GLOBAL defaults, so they wait for
+							     those to load; binding globalValue=undefined first would show the
+							     admin's own profile value. With auth off the store IS the global
+							     value, so they render immediately. -->
+							{#if !$authStore.authEnabled || globalThemeLoaded}
+								<ColoredActionsToggle globalValue={$authStore.authEnabled ? globalColoredActions : undefined} />
+								<AnimateIconsToggle globalValue={$authStore.authEnabled ? globalAnimateIcons : undefined} />
+								<IndentGuidesToggle globalValue={$authStore.authEnabled ? globalIndentGuides : undefined} />
+							{/if}
 							{#if $authStore.authEnabled}
 								<div class="text-xs text-muted-foreground flex items-start gap-1.5 mt-2 p-2 bg-muted/50 rounded-md">
 									<HelpCircle class="w-3.5 h-3.5 shrink-0 mt-0.5" />
 									<div>
-										<p>Personal theme preferences can be configured in your <a href="/profile" class="text-primary hover:underline">profile</a>.</p>
+										<p>These are the <strong>defaults for new users</strong> - they don't change your own view. To customise how <em>you</em> see the app, use the theme settings in your <a href="/profile" class="text-primary hover:underline">profile</a>.</p>
 									</div>
 								</div>
 							{/if}
