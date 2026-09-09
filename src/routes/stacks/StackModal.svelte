@@ -1877,6 +1877,12 @@
 				throw new Error((typeof data.error === 'string' ? data.error : data.message) || 'Failed to save compose file');
 			}
 			if (data.success === false) {
+				// On the restart path the server persists the compose+env BEFORE deploying,
+				// so a success:false here is a failed DEPLOY, not a failed save -- the content
+				// is already on disk. Clear the dirty flag so the footer doesn't claim
+				// "Unsaved changes" for edits that were in fact saved; the deploy error still
+				// surfaces via the throw below. (Plain save keeps isDirty on a real save fail.)
+				if (restart) isDirty = false;
 				throw new Error(data.error || 'Failed to save compose file');
 			}
 
