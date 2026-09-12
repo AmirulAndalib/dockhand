@@ -1,8 +1,8 @@
 [
   {
     "version": "1.0.47",
-    "date": "",
-    "comingSoon": true,
+    "date": "2026-09-12",
+    "comingSoon": false,
     "changes": [
       { "type": "feature", "text": "live compose output during deploys, plus a per-stack deploy history tab (#506, #1292, #1540, PR#1499, @strausmann)" },
       { "type": "fix", "text": "back up stacks whose folder is bind-mounted over the data volume (#1533)" },
@@ -20,7 +20,9 @@
       { "type": "fix", "text": "load the web manifest through a Cloudflare tunnel by sending credentials (PR#1513, @Macleykun)" },
       { "type": "fix", "text": "copy the restic password over plain HTTP (#1488)" },
       { "type": "fix", "text": "scope stack backup snapshots to their own environment (#1546)" },
-      { "type": "fix", "text": "theme defaults in General settings now save and display correctly when auth is on (#1547)" }
+      { "type": "fix", "text": "theme defaults in General settings now save and display correctly when auth is on (#1547)" },
+      { "type": "feature", "text": "warn when a host's kernel has cgroup memory accounting disabled (#1549)" },
+      { "type": "fix", "text": "self-update no longer fails at the updater step on baseline (old x86_64) images (#1500)" }
     ],
     "imageTag": "fnsys/dockhand:v1.0.47"
   },
