@@ -2430,7 +2430,12 @@ export async function redeployStackFromDir(
 			composePath,
 			envPath: hasEnv ? envPath : undefined,
 			composeFileName,
-			stackFiles
+			stackFiles,
+			// A restore rewrote the stack dir and swapped the volume data underneath the
+			// stack. Force-recreate so the container is rebuilt fresh against the restored
+			// state; a plain `up` sees the unchanged compose and only restarts the stopped
+			// container, which can leave it not-yet-running after an in-place swap.
+			forceRecreate: true
 		},
 		composeContent,
 		envVars,
