@@ -311,7 +311,8 @@ async function planStackDirVolume(
 	// HOST-side "Remote stack path (for backup)" - NOT to redeploy.
 	const probeHint: StackDirProbeHint =
 		isHawser && remoteStacksDirDefaulted ? { kind: 'hawser-defaulted', hostPath, envName }
-		: (isHawser || directRemote) && remoteStacksDir ? { kind: 'user-set', hostPath, envName }
+		: (isHawser || directRemote) && remoteStacksDir
+			? { kind: 'user-set', transport: isHawser ? 'hawser' : 'direct', hostPath, envName }
 		: { kind: 'local' };
 
 	return {
