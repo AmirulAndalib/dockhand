@@ -70,6 +70,38 @@ describe('processDockerStreamChunk - multiplexed (non-TTY attach) stream', () =>
 		// subsequent bytes now pass through raw
 		expect(processDockerStreamChunk(Buffer.from('more'), st).join('')).toBe('more');
 	});
+
+	test('an oversized frame size (>10MB) trips the raw fallback', () => {
+		const st = createDockerStreamState(true);
+		const header = Buffer.alloc(8);
+		header.writeUInt8(1, 0);
+		header.writeUInt32BE(20 * 1024 * 1024, 4); // 20 MB - beyond the 10 MB cap
+		const out = processDockerStreamChunk(Buffer.concat([Buffer.from(HTTP_HEAD), header, Buffer.from('body')]), st);
+		expect(out.join('')).toContain('body');
+		expect(st.multiplexed).toBe(false);
+	});
+});
+
+describe('processDockerStreamChunk - chunked AND multiplexed together (non-TTY attach over chunked HTTP)', () => {
+	test('demuxes frames delivered inside chunked bodies, across a chunk seam', () => {
+		const st = createDockerStreamState(true);
+		const f = frame(1, 'hello');
+		// two frames' bytes split into chunks so a frame boundary straddles a chunk boundary
+		const payload = Buffer.concat([f, frame(2, 'world')]);
+		const c1 = payload.slice(0, 6);   // mid-first-frame
+		const c2 = payload.slice(6);
+		const body =
+			c1.length.toString(16) + '\r\n' ; // chunk-size line for c1
+		// first event: HTTP head (chunked) + first chunk header+data, no trailing frame complete
+		const first = Buffer.concat([Buffer.from(HTTP_HEAD_CHUNKED + body), c1, Buffer.from('\r\n')]);
+		const secondBody = c2.length.toString(16) + '\r\n';
+		const second = Buffer.concat([Buffer.from(secondBody), c2, Buffer.from('\r\n')]);
+		const out = [
+			...processDockerStreamChunk(first, st),
+			...processDockerStreamChunk(second, st)
+		];
+		expect(out.join('')).toBe('helloworld');
+	});
 });
 
 describe('decodeChunkedDockerBody', () => {

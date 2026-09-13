@@ -33,6 +33,11 @@
 	let shellDetection = $state<ShellDetectionResult | null>(null);
 	let detectingShells = $state(false);
 
+	// hawser-edge exposes an exec-only terminal protocol, so attach isn't offered there.
+	const attachSupported = $derived(
+		($environments.find(e => e.id === $currentEnvironment?.id)?.connectionType ?? 'socket') !== 'hawser-edge'
+	);
+
 	// Shell/user options
 	let terminalMode = $state<TerminalMode>('exec');
 	let selectedShell = $state('/bin/bash');
@@ -216,7 +221,7 @@
 
 	onMount(async () => {
 		customUsers = getCustomUsers();
-		if ($page.url.searchParams.get('mode') === 'attach') {
+		if ($page.url.searchParams.get('mode') === 'attach' && attachSupported) {
 			terminalMode = 'attach';
 		}
 		await fetchContainers();
@@ -311,6 +316,8 @@
 				</div>
 			{/if}
 		</div>
+		<!-- Mode picker only when attach is possible; edge is exec-only, so it's hidden there. -->
+		{#if attachSupported}
 		<div class="flex items-center gap-2">
 			<Label class="text-sm text-muted-foreground">Mode:</Label>
 			<Select.Root type="single" value={terminalMode} onValueChange={(value) => terminalMode = value as TerminalMode}>
@@ -335,6 +342,7 @@
 				</Select.Content>
 			</Select.Root>
 		</div>
+		{/if}
 
 		{#if selectedContainer}
 			<Button size="sm" variant="ghost" onclick={clearSelection} class="h-9 px-3 text-sm text-muted-foreground hover:text-foreground">
@@ -536,7 +544,7 @@
 						containerName={selectedContainer.name}
 						shell={selectedShell}
 						user={committedUser}
-						mode={terminalMode}
+						mode={attachSupported ? terminalMode : 'exec'}
 						{envId}
 						fontSize={terminalFontSize}
 					/>

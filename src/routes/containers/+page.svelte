@@ -134,6 +134,9 @@
 
 	// Derived: current environment details for reactive port URL generation
 	const currentEnvDetails = $derived($environments.find(e => e.id === $currentEnvironment?.id) ?? null);
+	// hawser-edge exposes an exec-only terminal protocol (the agent has no attach path),
+	// so don't offer Attach there - the server would reject it anyway.
+	const attachSupported = $derived(currentEnvDetails?.connectionType !== 'hawser-edge');
 
 	// Search and sort state - initialize from URL for persistence across navigation
 	const initialSearch = $page.url.searchParams.get('search')
@@ -1124,23 +1127,22 @@
 			const savedUser = getSavedUser(container.id);
 			terminalUser = savedUser ?? 'root';
 			terminalCustomUsers = getCustomUsers();
-			// Default a fresh session to exec so a prior container's Attach choice
-			// (terminalMode is shared) doesn't carry over to this one.
-			terminalMode = 'exec';
 			// Show popover to configure new terminal
 			terminalPopoverStates[container.id] = true;
 		}
 	}
 
 	function startTerminal(container: ContainerInfo) {
-		if (terminalMode === 'exec') saveUserForContainer(container.id, terminalUser);
+		// Edge is exec-only; never start an attach session there even if a stale mode lingers.
+		const mode: TerminalMode = attachSupported ? terminalMode : 'exec';
+		if (mode === 'exec') saveUserForContainer(container.id, terminalUser);
 		terminalCustomUsers = getCustomUsers();
 		const terminal: ActiveTerminal = {
 			containerId: container.id,
 			containerName: container.name,
 			shell: terminalShell,
 			user: terminalUser,
-			mode: terminalMode
+			mode
 		};
 		activeTerminals = [...activeTerminals, terminal];
 		currentTerminalContainerId = container.id;
@@ -2167,7 +2169,15 @@
 							{:else}
 								<Popover.Root open={terminalPopoverStates[container.id] ?? false} onOpenChange={(open) => {
 									terminalPopoverStates[container.id] = open;
-									if (open && terminalMode === 'exec') detectContainerShells(container.id);
+									if (open) {
+										// Default each freshly-opened session to exec so a prior container's
+										// Attach choice (terminalMode is shared) doesn't carry over, and the
+										// picker/shell controls always render. Restore this container's saved user.
+										terminalMode = 'exec';
+										terminalUser = getSavedUser(container.id) ?? 'root';
+										terminalCustomUsers = getCustomUsers();
+										detectContainerShells(container.id);
+									}
 								}}>
 									<Popover.Trigger
 										onclick={(e: MouseEvent) => e.stopPropagation()}
@@ -2195,6 +2205,8 @@
 											</div>
 										{:else}
 											<div class="p-3 space-y-3">
+												<!-- Mode picker only when attach is possible; edge is exec-only, so it's hidden there. -->
+												{#if attachSupported}
 												<div class="space-y-1.5">
 													<Label class="text-xs">Mode</Label>
 													<Select.Root type="single" value={terminalMode} onValueChange={(value) => {
@@ -2222,6 +2234,7 @@
 														</Select.Content>
 													</Select.Root>
 													</div>
+												{/if}
 													{#if terminalMode === 'exec'}
 														<div class="space-y-1.5">
 															<Label class="text-xs">Shell</Label>
