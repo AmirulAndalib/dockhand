@@ -128,3 +128,32 @@ describe('decodeChunkedDockerBody', () => {
 		expect(st.chunkEnded).toBe(true);
 	});
 });
+
+// Edge attach seeds the state with headersStripped=true and feeds RAW hijacked bytes
+// (no HTTP response header): non-TTY output is multiplexed, TTY output is raw. This
+// mirrors handleEdgeExec / __terminalHandleExecMessage exactly.
+describe('processDockerStreamChunk - edge attach seeding (headersStripped, no HTTP header)', () => {
+	function attachState(multiplexed: boolean) {
+		const st = createDockerStreamState(multiplexed);
+		st.headersStripped = true;
+		return st;
+	}
+
+	test('demuxes multiplexed frames fed directly (non-TTY attach)', () => {
+		const st = attachState(true);
+		const out = processDockerStreamChunk(Buffer.concat([frame(1, 'out '), frame(2, 'err')]), st);
+		expect(out.join('')).toBe('out err');
+	});
+
+	test('passes raw bytes through unchanged (TTY attach)', () => {
+		const st = attachState(false);
+		expect(processDockerStreamChunk(Buffer.from('hello'), st).join('')).toBe('hello');
+	});
+
+	test('reassembles a frame split across two chunks', () => {
+		const st = attachState(true);
+		const f = frame(1, 'split');
+		expect(processDockerStreamChunk(f.subarray(0, 4), st)).toEqual([]);
+		expect(processDockerStreamChunk(f.subarray(4), st).join('')).toBe('split');
+	});
+});

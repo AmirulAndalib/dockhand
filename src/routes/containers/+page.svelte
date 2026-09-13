@@ -134,9 +134,6 @@
 
 	// Derived: current environment details for reactive port URL generation
 	const currentEnvDetails = $derived($environments.find(e => e.id === $currentEnvironment?.id) ?? null);
-	// hawser-edge exposes an exec-only terminal protocol (the agent has no attach path),
-	// so don't offer Attach there - the server would reject it anyway.
-	const attachSupported = $derived(currentEnvDetails?.connectionType !== 'hawser-edge');
 
 	// Search and sort state - initialize from URL for persistence across navigation
 	const initialSearch = $page.url.searchParams.get('search')
@@ -1133,8 +1130,7 @@
 	}
 
 	function startTerminal(container: ContainerInfo) {
-		// Edge is exec-only; never start an attach session there even if a stale mode lingers.
-		const mode: TerminalMode = attachSupported ? terminalMode : 'exec';
+		const mode: TerminalMode = terminalMode;
 		if (mode === 'exec') saveUserForContainer(container.id, terminalUser);
 		terminalCustomUsers = getCustomUsers();
 		const terminal: ActiveTerminal = {
@@ -2205,8 +2201,6 @@
 											</div>
 										{:else}
 											<div class="p-3 space-y-3">
-												<!-- Mode picker only when attach is possible; edge is exec-only, so it's hidden there. -->
-												{#if attachSupported}
 												<div class="space-y-1.5">
 													<Label class="text-xs">Mode</Label>
 													<Select.Root type="single" value={terminalMode} onValueChange={(value) => {
@@ -2234,7 +2228,6 @@
 														</Select.Content>
 													</Select.Root>
 													</div>
-												{/if}
 													{#if terminalMode === 'exec'}
 														<div class="space-y-1.5">
 															<Label class="text-xs">Shell</Label>

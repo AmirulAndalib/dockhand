@@ -188,8 +188,8 @@ import { createDockerStreamState, processDockerStreamChunk, type DockerStreamSta
 
 // ============ Hawser Edge Exec Messages ============
 
-function createExecStartMessage(execId: string, containerId: string, shell: string, user: string, cols = 120, rows = 30) {
-	return { type: 'exec_start', execId, containerId, cmd: shell, user, cols, rows };
+function createExecStartMessage(execId: string, containerId: string, shell: string, user: string, cols = 120, rows = 30, attach = false) {
+	return { type: 'exec_start', execId, containerId, cmd: shell, user, cols, rows, attach };
 }
 
 function createExecInputMessage(execId: string, data: string) {
@@ -399,7 +399,7 @@ const dockerStreams = new Map<string, { stream: any; execId: string | null; cont
 let wsConnectionCounter = 0;
 
 // Map to track Edge exec sessions (execId -> frontend WebSocket)
-const edgeExecSessions = new Map<string, { ws: any; execId: string; environmentId: number }>();
+const edgeExecSessions = new Map<string, { ws: any; execId: string; environmentId: number; streamState?: DockerStreamState }>();
 
 // Cleanup interval reference - only started in dev mode
 let cleanupInterval: ReturnType<typeof setInterval> | null = null;
@@ -630,13 +630,8 @@ function webSocketPlugin(): Plugin {
 					const target = getDockerTarget(envId);
 
 					try {
-						// Hawser Edge currently exposes an exec-only terminal protocol.
+						// Hawser Edge relays exec and (for capable agents) attach.
 						if (target.type === 'hawser-edge') {
-							if (mode === 'attach') {
-								ws.send(JSON.stringify({ type: 'error', message: 'Container attach is not supported for Edge environments' }));
-								ws.close();
-								return;
-							}
 							const conn = edgeConnections.get(target.environmentId);
 							if (!conn) {
 								ws.send(JSON.stringify({ type: 'error', message: 'Edge agent not connected' }));
@@ -644,11 +639,28 @@ function webSocketPlugin(): Plugin {
 								return;
 							}
 
+							const attach = mode === 'attach';
+							let streamState: DockerStreamState | undefined;
+							if (attach) {
+								let containerTty = false;
+								try {
+									if (typeof globalThis.__terminalGetContainerTty === 'function') {
+										containerTty = await globalThis.__terminalGetContainerTty(containerId, envId);
+									}
+								} catch {
+									// Keep multiplexing enabled if the TTY setting cannot be read.
+								}
+								// Attach output is a raw hijacked stream (no HTTP headers); only demux
+								// is needed, so seed the state with headersStripped already true.
+								streamState = createDockerStreamState(!containerTty);
+								streamState.headersStripped = true;
+							}
+
 							const execId = crypto.randomUUID();
-							edgeExecSessions.set(execId, { ws, execId, environmentId: target.environmentId });
+							edgeExecSessions.set(execId, { ws, execId, environmentId: target.environmentId, streamState });
 							meta.edgeExecId = execId;
 
-							const execStartMsg = createExecStartMessage(execId, containerId, shell, user);
+							const execStartMsg = createExecStartMessage(execId, containerId, shell, user, 120, 30, attach);
 							conn.ws.send(JSON.stringify(execStartMsg));
 							return;
 						}
@@ -1173,12 +1185,19 @@ async function handleHawserMessage(ws: any, msg: any) {
 			// Frontend doesn't need explicit ready message, it's already waiting for output
 		}
 	} else if (msg.type === 'exec_output') {
-		// Terminal output from exec session
+		// Terminal output from exec/attach session
 		const session = edgeExecSessions.get(msg.execId);
 		if (session?.ws?.readyState === 1) {
-			// Decode base64 data
-			const data = Buffer.from(msg.data, 'base64').toString('utf-8');
-			session.ws.send(JSON.stringify({ type: 'output', data }));
+			const bytes = Buffer.from(msg.data, 'base64');
+			// Attach sessions carry a stream state: demultiplex non-TTY frames.
+			// Exec sessions are raw TTY text and pass straight through.
+			if (session.streamState) {
+				for (const text of processDockerStreamChunk(bytes, session.streamState)) {
+					if (text) session.ws.send(JSON.stringify({ type: 'output', data: text }));
+				}
+			} else {
+				session.ws.send(JSON.stringify({ type: 'output', data: bytes.toString('utf-8') }));
+			}
 		}
 	} else if (msg.type === 'exec_end') {
 		// Exec session ended

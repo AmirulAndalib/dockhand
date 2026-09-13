@@ -153,8 +153,16 @@ globalThis.__terminalHandleExecMessage = (msg) => {
 	}
 
 	if (msg.type === 'exec_output') {
-		const data = Buffer.from(msg.data, 'base64').toString('utf-8');
-		session.ws.send(JSON.stringify({ type: 'output', data }));
+		const bytes = Buffer.from(msg.data, 'base64');
+		// Attach sessions carry a stream state: demultiplex non-TTY frames before
+		// forwarding. Exec sessions are raw TTY text and pass straight through.
+		if (session.streamState) {
+			for (const text of processDockerStreamChunk(bytes, session.streamState)) {
+				if (text) session.ws.send(JSON.stringify({ type: 'output', data: text }));
+			}
+		} else {
+			session.ws.send(JSON.stringify({ type: 'output', data: bytes.toString('utf-8') }));
+		}
 		return;
 	}
 
@@ -430,14 +438,21 @@ async function handleTerminalConnection(ws, url, connId) {
 			target = { type: 'socket', connectionType: 'socket', socketPath: process.env.DOCKER_SOCKET || '/var/run/docker.sock' };
 		}
 
-		// Hawser Edge currently exposes an exec-only terminal protocol.
+		// Hawser Edge relays exec and (for capable agents) attach through the agent.
 		if (target.connectionType === 'hawser-edge') {
+			let multiplexed = false;
 			if (mode === 'attach') {
-				ws.send(JSON.stringify({ type: 'error', message: 'Container attach is not supported for Edge environments' }));
-				ws.close();
-				return;
+				let containerTty = false;
+				if (typeof globalThis.__terminalGetContainerTty === 'function') {
+					try {
+						containerTty = await globalThis.__terminalGetContainerTty(containerId, envId);
+					} catch {
+						// Keep multiplexing enabled if the TTY setting cannot be read.
+					}
+				}
+				multiplexed = !containerTty;
 			}
-			handleEdgeExec(ws, connId, containerId, shell, user, target.environmentId);
+			handleEdgeExec(ws, connId, containerId, shell, user, target.environmentId, mode, multiplexed);
 			return;
 		}
 
@@ -584,20 +599,27 @@ async function handleTerminalConnection(ws, url, connId) {
 }
 
 /**
- * Handle Hawser Edge exec session.
- * Sends exec commands through the Hawser WebSocket relay.
+ * Handle Hawser Edge exec or attach session.
+ * Sends exec/attach commands through the Hawser WebSocket relay. Attach reuses the
+ * exec_* protocol with attach:true; for non-TTY containers the agent pipes a
+ * multiplexed stream, demultiplexed here via the session's stream state.
  */
-function handleEdgeExec(ws, connId, containerId, shell, user, environmentId) {
+function handleEdgeExec(ws, connId, containerId, shell, user, environmentId, mode = 'exec', multiplexed = false) {
 	if (typeof globalThis.__hawserSendMessage !== 'function') {
 		ws.send(JSON.stringify({ type: 'error', message: 'Edge agent handler not ready' }));
 		ws.close();
 		return;
 	}
 
+	const attach = mode === 'attach';
 	const execId = randomUUID();
-	edgeExecSessions.set(execId, { ws, execId, environmentId });
+	// Attach output is a raw hijacked stream (no HTTP headers); only the multiplexing
+	// demux is needed, so seed the state with headersStripped already true.
+	const streamState = attach ? createDockerStreamState(multiplexed) : null;
+	if (streamState) streamState.headersStripped = true;
+	edgeExecSessions.set(execId, { ws, execId, environmentId, streamState });
 
-	// Send exec_start to the Hawser agent
+	// Send exec_start (attach:true reuses the exec relay) to the Hawser agent
 	const execStartMsg = JSON.stringify({
 		type: 'exec_start',
 		execId,
@@ -605,7 +627,8 @@ function handleEdgeExec(ws, connId, containerId, shell, user, environmentId) {
 		cmd: shell,
 		user,
 		cols: 120,
-		rows: 30
+		rows: 30,
+		attach
 	});
 
 	const sent = globalThis.__hawserSendMessage(environmentId, execStartMsg);
