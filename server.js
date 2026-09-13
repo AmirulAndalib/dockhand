@@ -379,7 +379,15 @@ async function handleTerminalConnection(ws, url, connId) {
 		return;
 	}
 
-	if (ws.__auth && typeof globalThis.__canAccessEnvForUser === 'function') {
+	// Fail closed: a terminal upgrade is rejected with 401 before it reaches here unless
+	// authenticated, so ws.__auth is always set. Assert it explicitly so the env/exec
+	// gates below never run on a null auth (never rely on the handshake invariant alone).
+	if (!ws.__auth) {
+		ws.close(1008, 'unauthenticated');
+		return;
+	}
+
+	if (typeof globalThis.__canAccessEnvForUser === 'function') {
 		try {
 			const ok = await globalThis.__canAccessEnvForUser(ws.__auth, envId);
 			if (!ok) {
@@ -396,7 +404,7 @@ async function handleTerminalConnection(ws, url, connId) {
 	}
 
 	// Opening a shell requires the containers:exec permission, same as the REST exec endpoint.
-	if (ws.__auth && typeof globalThis.__canExecForUser === 'function') {
+	if (typeof globalThis.__canExecForUser === 'function') {
 		try {
 			const allowed = await globalThis.__canExecForUser(ws.__auth, envId);
 			if (!allowed) {
