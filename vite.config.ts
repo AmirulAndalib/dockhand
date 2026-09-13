@@ -171,45 +171,20 @@ function resolveDockerTarget(
 	};
 }
 
-// ============ Exec API Helpers ============
+// ============ Terminal Stream Helpers ============
 
-function buildExecStartHttpRequest(execId: string, target: DockerTarget): string {
-	const body = JSON.stringify({ Detach: false, Tty: true });
+function buildDockerStreamHttpRequest(path: string, target: DockerTarget, body = ''): string {
 	const tokenHeader = target.type === 'tcp' && target.hawserToken
 		? `X-Hawser-Token: ${target.hawserToken}\r\n`
 		: '';
 	// Use actual host for proper routing through reverse proxies like Caddy
 	const host = target.host || 'localhost';
-	return `POST /exec/${execId}/start HTTP/1.1\r\nHost: ${host}\r\nContent-Type: application/json\r\n${tokenHeader}Connection: Upgrade\r\nUpgrade: tcp\r\nContent-Length: ${body.length}\r\n\r\n${body}`;
+	return `POST ${path} HTTP/1.1\r\nHost: ${host}\r\nContent-Type: application/json\r\n${tokenHeader}Connection: Upgrade\r\nUpgrade: tcp\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`;
 }
 
 // ============ Stream Processing ============
 
-function processTerminalOutput(
-	data: string,
-	state: { headersStripped: boolean; isChunked: boolean }
-): string | null {
-	let text = data;
-
-	if (!state.headersStripped) {
-		if (text.toLowerCase().includes('transfer-encoding: chunked')) {
-			state.isChunked = true;
-		}
-		const headerEnd = text.indexOf('\r\n\r\n');
-		if (headerEnd > -1) {
-			text = text.slice(headerEnd + 4);
-			state.headersStripped = true;
-		} else if (text.startsWith('HTTP/')) {
-			return null;
-		}
-	}
-
-	if (state.isChunked && text) {
-		text = text.replace(/^[0-9a-fA-F]+\r\n/gm, '').replace(/\r\n$/g, '');
-	}
-
-	return text || null;
-}
+import { createDockerStreamState, processDockerStreamChunk, type DockerStreamState } from './src/lib/server/docker-stream-core';
 
 // ============ Hawser Edge Exec Messages ============
 
@@ -396,9 +371,29 @@ async function resizeExecForWs(execId: string, cols: number, rows: number, targe
 	}
 }
 
+async function resizeContainerForWs(containerId: string, cols: number, rows: number, target: ReturnType<typeof getDockerTarget>): Promise<void> {
+	try {
+		await dockerHttpRequest('POST', `/containers/${encodeURIComponent(containerId)}/resize?h=${rows}&w=${cols}`, target);
+	} catch {
+		// Ignore resize errors
+	}
+}
+
+async function getContainerTtyForWs(containerId: string, target: ReturnType<typeof getDockerTarget>): Promise<boolean> {
+	try {
+		const response = await dockerHttpRequest('GET', `/containers/${encodeURIComponent(containerId)}/json`, target);
+		if (response.statusCode === 200) {
+			return Boolean(JSON.parse(response.body).Config?.Tty);
+		}
+	} catch {
+	// Keep multiplexing enabled if the TTY setting cannot be read.
+	}
+	return false;
+}
+
 // Map to track Docker streams per WebSocket (keyed by unique connection ID)
 // Includes WebSocket reference for orphan detection
-const dockerStreams = new Map<string, { stream: any; execId: string; target: ReturnType<typeof getDockerTarget>; state: { isChunked: boolean }; ws: any }>();
+const dockerStreams = new Map<string, { stream: any; execId: string | null; containerId: string; mode: 'exec' | 'attach'; target: ReturnType<typeof getDockerTarget>; state: DockerStreamState; ws: any }>();
 
 // Counter for unique WebSocket connection IDs
 let wsConnectionCounter = 0;
@@ -597,6 +592,7 @@ function webSocketPlugin(): Plugin {
 					const containerIdIndex = pathParts.indexOf('containers') + 1;
 					const containerId = pathParts[containerIdIndex];
 
+					const mode = url.searchParams.get('mode') === 'attach' ? 'attach' : 'exec';
 					const shell = url.searchParams.get('shell') || '/bin/sh';
 					const user = url.searchParams.get('user') || 'root';
 					const envIdParam = url.searchParams.get('envId');
@@ -634,8 +630,13 @@ function webSocketPlugin(): Plugin {
 					const target = getDockerTarget(envId);
 
 					try {
-						// Handle Hawser Edge mode differently - use WebSocket protocol
+						// Hawser Edge currently exposes an exec-only terminal protocol.
 						if (target.type === 'hawser-edge') {
+							if (mode === 'attach') {
+								ws.send(JSON.stringify({ type: 'error', message: 'Container attach is not supported for Edge environments' }));
+								ws.close();
+								return;
+							}
 							const conn = edgeConnections.get(target.environmentId);
 							if (!conn) {
 								ws.send(JSON.stringify({ type: 'error', message: 'Edge agent not connected' }));
@@ -653,11 +654,21 @@ function webSocketPlugin(): Plugin {
 						}
 
 						// Direct Docker connection (unix or tcp/hawser-standard)
-						const exec = await createExecForWs(containerId, [shell], user, target);
-						const execId = exec.Id;
-
-						let headersStripped = false;
-						const state = { isChunked: false };
+						let execId: string | null = null;
+						let streamPath: string;
+						let streamBody = '';
+						let multiplexed = false;
+						if (mode === 'attach') {
+							const containerTty = await getContainerTtyForWs(containerId, target);
+							multiplexed = !containerTty;
+							streamPath = `/containers/${encodeURIComponent(containerId)}/attach?stream=1&stdin=1&stdout=1&stderr=1`;
+						} else {
+							const exec = await createExecForWs(containerId, [shell], user, target);
+							execId = exec.Id;
+							streamPath = `/exec/${execId}/start`;
+							streamBody = JSON.stringify({ Detach: false, Tty: true });
+						}
+						const state = createDockerStreamState(multiplexed);
 
 						// Create Node.js TCP/Unix socket connection to Docker
 						let dockerStream: net.Socket;
@@ -679,30 +690,13 @@ function webSocketPlugin(): Plugin {
 						}
 
 						dockerStream.on('connect', () => {
-							const httpRequest = buildExecStartHttpRequest(execId, target);
-							dockerStream.write(httpRequest);
+							dockerStream.write(buildDockerStreamHttpRequest(streamPath, target, streamBody));
 						});
 
 						dockerStream.on('data', (data: Buffer) => {
 							if (ws.readyState === WsWebSocket.OPEN) {
-								let text = data.toString('utf-8');
-								if (!headersStripped) {
-									if (text.toLowerCase().includes('transfer-encoding: chunked')) {
-										state.isChunked = true;
-									}
-									const headerEnd = text.indexOf('\r\n\r\n');
-									if (headerEnd > -1) {
-										text = text.slice(headerEnd + 4);
-										headersStripped = true;
-									} else if (text.startsWith('HTTP/')) {
-										return;
-									}
-								}
-								if (state.isChunked && text) {
-									text = text.replace(/^[0-9a-fA-F]+\r\n/gm, '').replace(/\r\n$/g, '');
-								}
-								if (text) {
-									ws.send(JSON.stringify({ type: 'output', data: text }));
+								for (const text of processDockerStreamChunk(data, state)) {
+									if (text) ws.send(JSON.stringify({ type: 'output', data: text }));
 								}
 							}
 						});
@@ -721,7 +715,7 @@ function webSocketPlugin(): Plugin {
 							}
 						});
 
-						dockerStreams.set(connId, { stream: dockerStream, execId, target, state, ws });
+						dockerStreams.set(connId, { stream: dockerStream, execId, containerId, mode, target, state, ws });
 					} catch (error: any) {
 						console.error('[Terminal WS] Connection error:', error?.message || error);
 						ws.send(JSON.stringify({ type: 'error', message: error.message }));
@@ -780,8 +774,12 @@ function webSocketPlugin(): Plugin {
 						const msg = JSON.parse(message.toString());
 						if (msg.type === 'input' && d.stream) {
 							d.stream.write(msg.data);
-						} else if (msg.type === 'resize' && d.execId) {
-							resizeExecForWs(d.execId, msg.cols, msg.rows, d.target);
+						} else if (msg.type === 'resize') {
+							if (d.mode === 'attach') {
+								resizeContainerForWs(d.containerId, msg.cols, msg.rows, d.target);
+							} else if (d.execId) {
+								resizeExecForWs(d.execId, msg.cols, msg.rows, d.target);
+							}
 						}
 					} catch {
 						if (d.stream) {
