@@ -13,7 +13,9 @@
       { "type": "fix", "text": "stop password managers from offering to save stack secret env-var fields (#1517)" },
       { "type": "fix", "text": "repository stats no longer fail on the backups screen (#1561)" },
       { "type": "fix", "text": "dashboard image disk usage no longer counts shared layers multiple times (PR#1461, @omggga)" },
-      { "type": "feature", "text": "add a docker attach terminal mode (#1078, PR#1377, @ivanjx)" }
+      { "type": "feature", "text": "add a docker attach terminal mode (#1078, PR#1377, @ivanjx)" },
+      { "type": "fix", "text": "stack action buttons show for stopped and freshly created stacks, regression (#1565)" },
+      { "type": "fix", "text": "the update dialog no longer shows an unreleased version as the target (#1566)" }
     ],
     "imageTag": "fnsys/dockhand:v1.0.48"
   },
