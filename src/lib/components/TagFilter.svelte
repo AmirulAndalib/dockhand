@@ -41,26 +41,27 @@
 			</Button>
 		{/snippet}
 	</Popover.Trigger>
-	<Popover.Content class="w-56 p-1" align="start">
+	<Popover.Content class="w-60 p-1" align="start">
 		{#if groupBy !== undefined}
 			<div class="flex items-center gap-2 px-2 py-1.5">
-				<Rows3 class="h-3.5 w-3.5 text-muted-foreground" />
-				<span class="text-xs mr-auto">Group by tag</span>
+				<Rows3 class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+				<span class="text-xs flex-1">Group by tag</span>
 				<TogglePill bind:checked={groupBy} />
 			</div>
 			{#if showBands !== undefined && groupBy}
-				<!-- Sub-option: only meaningful while grouping is on. -->
-				<div class="flex items-center gap-2 pl-7 pr-2 py-1.5">
-					<Paintbrush class="h-3.5 w-3.5 text-muted-foreground" />
-					<span class="text-xs mr-auto">Group colors</span>
+				<!-- Only meaningful while grouping is on. Same padding as the other rows so
+				     the icon column lines up on the left and the toggle on the right. -->
+				<div class="flex items-center gap-2 px-2 py-1.5">
+					<Paintbrush class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+					<span class="text-xs flex-1 whitespace-nowrap">Color group bands</span>
 					<TogglePill bind:checked={showBands} />
 				</div>
 			{/if}
 		{/if}
 		{#if showTags !== undefined}
 			<div class="flex items-center gap-2 px-2 py-1.5">
-				<TagIcon class="h-3.5 w-3.5 text-muted-foreground" />
-				<span class="text-xs mr-auto">Show tags</span>
+				<TagIcon class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+				<span class="text-xs flex-1">Show tags</span>
 				<TogglePill bind:checked={showTags} />
 			</div>
 		{/if}
