@@ -2029,10 +2029,11 @@
 						<div class="{isFieldHighlighted(container.id, 'memory') ? 'stat-highlight' : ''} text-right">
 							{#if containerStats.get(container.id)}
 								{@const stats = containerStats.get(container.id)}
+								{@const memLimitLabel = stats.memoryLimit ? formatBytes(stats.memoryLimit) : 'unlimited'}
 								{@const memoryTooltip = stats.memoryCache > 0
-									? `${formatBytes(stats.memoryUsage)} / ${formatBytes(stats.memoryLimit)} (Total: ${formatBytes(stats.memoryRaw)} | Cache: ${formatBytes(stats.memoryCache)})`
-									: `${formatBytes(stats.memoryUsage)} / ${formatBytes(stats.memoryLimit)}`}
-								<span class="text-xs font-mono {stats.memoryPercent > 80 ? 'text-red-500' : stats.memoryPercent > 50 ? 'text-yellow-500' : 'text-muted-foreground'}" title={memoryTooltip}>{formatBytesCompact(stats.memoryUsage)}<span class="text-muted-foreground/50">/{formatBytesCompact(stats.memoryLimit, 0)}</span></span>
+									? `${formatBytes(stats.memoryUsage)} / ${memLimitLabel} (Total: ${formatBytes(stats.memoryRaw)} | Cache: ${formatBytes(stats.memoryCache)})`
+									: `${formatBytes(stats.memoryUsage)} / ${memLimitLabel}`}
+								<span class="text-xs font-mono {stats.memoryPercent > 80 ? 'text-red-500' : stats.memoryPercent > 50 ? 'text-yellow-500' : 'text-muted-foreground'}" title={memoryTooltip}>{formatBytesCompact(stats.memoryUsage)}<span class="text-muted-foreground/50">/{stats.memoryLimit ? formatBytesCompact(stats.memoryLimit, 0) : '∞'}</span></span>
 							{:else if container.state === 'running'}
 								<span class="text-xs text-muted-foreground/50">...</span>
 							{:else}
