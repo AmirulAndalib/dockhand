@@ -2648,7 +2648,7 @@
 <EditContainerModal
 	bind:open={showEditModal}
 	containerId={editContainerId}
-	onClose={() => (showEditModal = false)}
+	onClose={() => { showEditModal = false; loadTags(envId); }}
 	onSuccess={fetchContainers}
 	onIconChanged={() => loadIconOverrides(envId)}
 />
