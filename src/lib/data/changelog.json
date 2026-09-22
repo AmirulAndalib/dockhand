@@ -1,7 +1,7 @@
 [
   {
     "version": "1.0.49",
-    "date": "",
+    "date": "2026-09-22",
     "comingSoon": true,
     "changes": [
       { "type": "feature", "text": "tag containers and stacks, then filter and group the grid by tag (#781, #870)" },
