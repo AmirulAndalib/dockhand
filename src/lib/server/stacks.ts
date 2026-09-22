@@ -2565,8 +2565,9 @@ export async function stopStack(
 
 	// `docker compose stop` interpolates the compose file too, so a stack with required
 	// provider secrets (${VAR:?required}) fails to stop without them - e.g. the
-	// stop-during-backup path (#1579).
-	await applyProviderSecretsToComposeResult(result, stackName, envId, `[Stack:${stackName}]`);
+	// stop-during-backup path (#1579). bestEffort: stopping a stack must not be blocked
+	// by an unreachable provider, so a resolve failure falls back to on-disk/DB vars.
+	await applyProviderSecretsToComposeResult(result, stackName, envId, `[Stack:${stackName}]`, true);
 
 	const composeResult = await executeComposeCommand(
 		'stop',
@@ -2622,8 +2623,10 @@ export async function restartStack(
 
 	// Resolve secret-provider values up front: every restart mode ends in a compose
 	// command (up/start/restart) that interpolates the compose file, so a stack with
-	// required provider secrets (${VAR:?required}) fails without them (#1579).
-	await applyProviderSecretsToComposeResult(result, stackName, envId, `[Stack:${stackName}]`);
+	// required provider secrets (${VAR:?required}) fails without them (#1579). bestEffort:
+	// restarting a running stack must not be blocked by an unreachable provider, so a
+	// resolve failure falls back to on-disk/DB vars rather than aborting the restart.
+	await applyProviderSecretsToComposeResult(result, stackName, envId, `[Stack:${stackName}]`, true);
 
 	if (mode === 'recreate') {
 		// Stop first, then bring up with --force-recreate to ensure new container IDs
@@ -3779,10 +3782,11 @@ async function resolveProviderEnvVars(
 
 /**
  * Resolve the bound provider's secrets over a raw (nonSecretVars, secretVars) pair.
- * Returns the merged vars. bestEffort=true (tear-down paths) logs and returns the
- * inputs unchanged if the provider is unreachable, so a down/remove is never blocked
- * by a dead provider. The single source of truth both the compose-result helper and
- * removeStack use, so envPath derivation cannot drift between them.
+ * Returns the merged vars. bestEffort=true (lifecycle paths that must not be blocked by
+ * an unreachable provider: stop/restart/down/remove) logs and returns the inputs
+ * unchanged if the provider is down, so the op falls back to the on-disk/DB vars. The
+ * single source of truth both the compose-result helper and removeStack use, so envPath
+ * derivation cannot drift between them.
  */
 async function resolveProviderVarsBestEffort(
 	stackName: string,
@@ -3831,9 +3835,9 @@ async function applyProviderSecretsToComposeResult(
 	stackName: string,
 	envId: number | null | undefined,
 	logPrefix: string,
-	// Tear-down paths (down/remove) pass bestEffort: a provider that is unreachable
-	// must not block bringing a stack down, so a resolve error is logged and the
-	// compose command proceeds with whatever vars are on disk/DB.
+	// Lifecycle paths that must not be blocked by an unreachable provider (stop/restart/
+	// down/remove) pass bestEffort: a resolve error is logged and the compose command
+	// proceeds with whatever vars are on disk/DB. Deploy paths (start/up) keep the throw.
 	bestEffort = false
 ): Promise<void> {
 	if (!result.success || !result.secretVars || !result.nonSecretVars) return;
