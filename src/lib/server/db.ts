@@ -5896,6 +5896,24 @@ export async function removePendingContainerUpdate(environmentId: number, contai
 		));
 }
 
+/**
+ * Clear a pending update by container NAME.
+ *
+ * An update recreates the container under a new id, so a caller that ran the update
+ * no longer holds the id the row was written with. The name survives the recreate,
+ * which is what the auto-update schedule identifies a container by anyway.
+ */
+export async function removePendingContainerUpdateByName(
+	environmentId: number,
+	containerName: string
+): Promise<void> {
+	await db.delete(pendingContainerUpdates)
+		.where(and(
+			eq(pendingContainerUpdates.environmentId, environmentId),
+			eq(pendingContainerUpdates.containerName, containerName)
+		));
+}
+
 // =============================================================================
 // BACKUP DESTINATION OPERATIONS
 // =============================================================================
