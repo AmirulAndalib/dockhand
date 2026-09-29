@@ -25,6 +25,7 @@
 	import MultiSelectFilter from '$lib/components/MultiSelectFilter.svelte';
 	import { appSettings } from '$lib/stores/settings';
 	import { mergePartialStats, definedPartialForStore } from '$lib/utils/merge-partial-stats';
+	import { diskSegmentPath, type DiskSegmentKey } from '$lib/utils/disk-segment-path';
 
 	const LABEL_FILTER_STORAGE_KEY = 'dockhand-dashboard-label-filter';
 
@@ -664,6 +665,16 @@
 		}
 	}
 
+	// Handle disk usage segment click - select environment and open that resource's page
+	function handleDiskClick(envId: number, key: DiskSegmentKey) {
+		const tile = getTileById(envId);
+		const route = diskSegmentPath(key);
+		if (tile?.stats && route) {
+			currentEnvironment.set({ id: envId, name: tile.stats.name });
+			goto(route);
+		}
+	}
+
 	function toggleLocked() {
 		locked = !locked;
 		dashboardPreferences.setLocked(locked);
@@ -1200,6 +1211,7 @@
 									width={2}
 									height={Math.max(item.h, 2)}
 									oneventsclick={() => handleEventsClick(tile.stats!.id)}
+									ondiskclick={(key) => handleDiskClick(tile.stats!.id, key)}
 									showStacksBreakdown={false}
 								/>
 							</div>
@@ -1235,7 +1247,7 @@
 							/>
 						{:else if tile.stats}
 							<!-- Show actual tile with data -->
-							<EnvironmentTile stats={tile.stats} width={item.w} height={item.h} oneventsclick={() => handleEventsClick(tile.stats!.id)} />
+							<EnvironmentTile stats={tile.stats} width={item.w} height={item.h} oneventsclick={() => handleEventsClick(tile.stats!.id)} ondiskclick={(key) => handleDiskClick(tile.stats!.id, key)} />
 						{/if}
 					{/if}
 				{/snippet}
