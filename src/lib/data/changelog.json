@@ -1,7 +1,7 @@
 [
   {
     "version": "1.0.50",
-    "date": "2026-09-29",
+    "date": "2026-09-30",
     "changes": [
       { "type": "feature", "text": "update a container straight from its details view when a newer image is available (#1588)" },
       { "type": "feature", "text": "duplicate a backup schedule to reuse its settings for another destination (#1578)" },
